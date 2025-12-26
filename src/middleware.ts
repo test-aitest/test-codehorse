@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // 認証が必要なパスのパターン
-const protectedRoutes = ["/dashboard", "/repositories", "/reviews", "/settings"];
+const protectedRoutes = [
+  "/dashboard",
+  "/repositories",
+  "/reviews",
+  "/settings",
+];
 
 // 認証済みユーザーがアクセスすべきでないパス
 const authRoutes = ["/sign-in", "/sign-up"];
@@ -10,7 +15,18 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // セッショントークンを確認
-  const sessionToken = request.cookies.get("better-auth.session_token")?.value;
+  const sessionToken =
+    request.cookies.get("better-auth.session_token")?.value ||
+    request.cookies.get("better-auth.session")?.value ||
+    request.cookies.get("__Secure-better-auth.session_token")?.value;
+
+  // デバッグ: 全Cookieをログ
+  console.log("[Middleware] Path:", pathname);
+  console.log(
+    "[Middleware] Cookies:",
+    request.cookies.getAll().map((c) => c.name)
+  );
+  console.log("[Middleware] Session token exists:", !!sessionToken);
 
   const isProtectedRoute = protectedRoutes.some((route) =>
     pathname.startsWith(route)
