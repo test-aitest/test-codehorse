@@ -33,12 +33,12 @@ export default async function RepositoriesPage() {
   const repositories = await getRepositories();
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-full flex-col">
       <Header
         title="Repositories"
         description="Manage your connected repositories"
       />
-      <div className="p-6">
+      <div className="flex-1 overflow-auto p-6">
         <div className="flex justify-end mb-4">
           <AddRepositoryDialog />
         </div>

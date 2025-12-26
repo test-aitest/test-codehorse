@@ -34,12 +34,12 @@ export default async function RepositorySettingsPage({
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-full flex-col">
       <Header
         title="Repository Settings"
         description={repository.fullName}
       />
-      <div className="p-6">
+      <div className="flex-1 overflow-auto p-6">
         <RepositorySettings repository={repository} />
       </div>
     </div>

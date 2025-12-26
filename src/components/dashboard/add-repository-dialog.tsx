@@ -10,7 +10,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -228,66 +227,53 @@ export function AddRepositoryDialog() {
                     No repositories found.
                   </p>
                 ) : (
-                  <ScrollArea className="h-100 pr-4">
-                    <div className="space-y-2">
+                  <ScrollArea className="h-80">
+                    <div className="space-y-1 pr-4">
                       {repositories.map((repo) => (
-                        <Card key={repo.id}>
-                          <CardContent className="p-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" />
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-medium truncate">
-                                      {repo.name}
-                                    </span>
-                                    {repo.isPrivate ? (
-                                      <Lock className="h-3 w-3 text-muted-foreground" />
-                                    ) : (
-                                      <Globe className="h-3 w-3 text-muted-foreground" />
-                                    )}
-                                    {repo.language && (
-                                      <Badge
-                                        variant="secondary"
-                                        className="text-xs"
-                                      >
-                                        {repo.language}
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  {repo.description && (
-                                    <p className="text-xs text-muted-foreground truncate">
-                                      {repo.description}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="shrink-0 ml-2">
-                                {repo.isConnected ? (
-                                  <Badge variant="secondary" className="gap-1">
-                                    <Check className="h-3 w-3" />
-                                    Connected
-                                  </Badge>
+                        <div
+                          key={repo.id}
+                          className="flex items-center justify-between rounded-lg border p-2 hover:bg-muted/50"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <GitBranch className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <span className="font-medium text-sm truncate">
+                              {repo.name}
+                            </span>
+                            {repo.isPrivate ? (
+                              <Lock className="h-3 w-3 text-muted-foreground shrink-0" />
+                            ) : (
+                              <Globe className="h-3 w-3 text-muted-foreground shrink-0" />
+                            )}
+                            {repo.language && (
+                              <Badge variant="secondary" className="text-xs shrink-0">
+                                {repo.language}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="shrink-0 ml-2">
+                            {repo.isConnected ? (
+                              <Badge variant="secondary" className="gap-1">
+                                <Check className="h-3 w-3" />
+                                Connected
+                              </Badge>
+                            ) : (
+                              <Button
+                                size="sm"
+                                onClick={() => handleAddRepository(repo)}
+                                disabled={
+                                  addingRepo === repo.fullName || isPending
+                                }
+                              >
+                                {addingRepo === repo.fullName ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
                                 ) : (
-                                  <Button
-                                    size="sm"
-                                    onClick={() => handleAddRepository(repo)}
-                                    disabled={
-                                      addingRepo === repo.fullName || isPending
-                                    }
-                                  >
-                                    {addingRepo === repo.fullName ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Plus className="h-4 w-4" />
-                                    )}
-                                    Add
-                                  </Button>
+                                  <Plus className="h-4 w-4" />
                                 )}
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
+                                Add
+                              </Button>
+                            )}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </ScrollArea>

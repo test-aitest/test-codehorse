@@ -85,9 +85,9 @@ export default async function DashboardPage() {
   const stats = await getDashboardStats();
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-full flex-col">
       <Header title="Dashboard" />
-      <div className="p-6 space-y-6">
+      <div className="flex-1 overflow-auto p-6 space-y-6">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">
             Welcome back, {session.user.name || "User"}!

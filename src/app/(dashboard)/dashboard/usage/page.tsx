@@ -134,12 +134,12 @@ export default async function UsagePage() {
   const stats = await getUsageStats();
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-full flex-col">
       <Header
         title="Usage & Cost"
         description="Track your token usage and estimated costs"
       />
-      <div className="p-6">
+      <div className="flex-1 overflow-auto p-6">
         <UsageStats stats={stats} />
       </div>
     </div>
