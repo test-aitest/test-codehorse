@@ -8,9 +8,6 @@ const protectedRoutes = [
   "/settings",
 ];
 
-// 認証済みユーザーがアクセスすべきでないパス
-const authRoutes = ["/sign-in", "/sign-up"];
-
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -20,18 +17,9 @@ export async function middleware(request: NextRequest) {
     request.cookies.get("better-auth.session")?.value ||
     request.cookies.get("__Secure-better-auth.session_token")?.value;
 
-  // デバッグ: 全Cookieをログ
-  console.log("[Middleware] Path:", pathname);
-  console.log(
-    "[Middleware] Cookies:",
-    request.cookies.getAll().map((c) => c.name)
-  );
-  console.log("[Middleware] Session token exists:", !!sessionToken);
-
   const isProtectedRoute = protectedRoutes.some((route) =>
     pathname.startsWith(route)
   );
-  const isAuthRoute = authRoutes.some((route) => pathname.startsWith(route));
 
   // 保護されたルートに未認証でアクセス
   if (isProtectedRoute && !sessionToken) {
@@ -40,10 +28,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(signInUrl);
   }
 
-  // 認証済みユーザーがサインインページにアクセス
-  if (isAuthRoute && sessionToken) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
+  // 認証ルート（/sign-in, /sign-up）へのアクセスは、
+  // ページ側でセッション検証を行い、有効な場合のみリダイレクトする
+  // これにより、無効なセッションクッキーが残っている場合の無限ループを防ぐ
 
   return NextResponse.next();
 }
