@@ -1,5 +1,6 @@
 /**
  * Invoke Claude Code CLI with the given prompt
+ * Uses expect to start Claude interactively, send the prompt, and hand over control
  */
 export declare function invokeClaudeCode(prompt: string, repoPath: string): Promise<void>;
 /**

@@ -4,34 +4,82 @@ exports.invokeClaudeCode = invokeClaudeCode;
 exports.isClaudeCodeInstalled = isClaudeCodeInstalled;
 const child_process_1 = require("child_process");
 const fs_1 = require("fs");
+const os_1 = require("os");
+const path_1 = require("path");
+const crypto_1 = require("crypto");
 /**
  * Invoke Claude Code CLI with the given prompt
+ * Uses expect to start Claude interactively, send the prompt, and hand over control
  */
 async function invokeClaudeCode(prompt, repoPath) {
     // Verify repo path exists
     if (!(0, fs_1.existsSync)(repoPath)) {
         throw new Error(`Repository path does not exist: ${repoPath}`);
     }
+    // Write prompt to a temp file (to avoid escaping issues in expect script)
+    const promptFile = (0, path_1.join)((0, os_1.tmpdir)(), `codehorse-prompt-${(0, crypto_1.randomBytes)(8).toString("hex")}.txt`);
+    (0, fs_1.writeFileSync)(promptFile, prompt, "utf-8");
+    // Create an expect script that:
+    // 1. Starts Claude Code
+    // 2. Waits for the prompt input
+    // 3. Sends the prompt from the file
+    // 4. Hands over control to the user for interactive permissions
+    const expectFile = (0, path_1.join)((0, os_1.tmpdir)(), `codehorse-expect-${(0, crypto_1.randomBytes)(8).toString("hex")}.exp`);
+    const expectContent = `#!/usr/bin/expect -f
+set timeout -1
+set prompt_file "${promptFile}"
+
+# Read prompt from file
+set fp [open $prompt_file r]
+set prompt [read $fp]
+close $fp
+
+# Start Claude Code
+spawn claude
+
+# Wait for Claude to be ready (looking for the input prompt)
+expect {
+    ">" {
+        # Send the prompt
+        send -- "$prompt\\r"
+    }
+    timeout {
+        # If no prompt, just send anyway
+        send -- "$prompt\\r"
+    }
+}
+
+# Hand over control to the user
+interact
+`;
+    (0, fs_1.writeFileSync)(expectFile, expectContent, "utf-8");
+    (0, fs_1.chmodSync)(expectFile, 0o755);
     return new Promise((resolve, reject) => {
-        // Spawn claude CLI with --print flag
-        // --print makes it output response without interactive mode
-        const claude = (0, child_process_1.spawn)("claude", ["--print"], {
+        const expectProcess = (0, child_process_1.spawn)("expect", [expectFile], {
             cwd: repoPath,
-            stdio: ["pipe", "inherit", "inherit"],
-            shell: true,
+            stdio: "inherit",
         });
-        // Write prompt to stdin
-        claude.stdin.write(prompt);
-        claude.stdin.end();
-        claude.on("error", (error) => {
-            if (error.code === "ENOENT") {
-                reject(new Error("Claude Code CLI not found. Please install it first: npm install -g @anthropic-ai/claude-code"));
+        expectProcess.on("error", (error) => {
+            try {
+                (0, fs_1.unlinkSync)(promptFile);
             }
-            else {
-                reject(error);
+            catch { }
+            try {
+                (0, fs_1.unlinkSync)(expectFile);
             }
+            catch { }
+            reject(error);
         });
-        claude.on("close", (code) => {
+        expectProcess.on("close", (code) => {
+            // Clean up temp files
+            try {
+                (0, fs_1.unlinkSync)(promptFile);
+            }
+            catch { }
+            try {
+                (0, fs_1.unlinkSync)(expectFile);
+            }
+            catch { }
             if (code === 0) {
                 resolve();
             }
