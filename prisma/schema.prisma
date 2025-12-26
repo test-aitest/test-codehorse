@@ -196,6 +196,20 @@ model ReviewComment {
   @@index([reviewId])
 }
 
+// レビューエクスポート用の一時トークン
+model ReviewExportToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  reviewId  String
+  userId    String
+  expiresAt DateTime
+  consumed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([expiresAt])
+}
+
 // ========================================
 // 課金・サブスクリプション (Polar.sh)
 // ========================================

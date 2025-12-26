@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition, useEffect } from "react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { ja } from "date-fns/locale";
@@ -8,6 +8,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   ExternalLink,
   FileCode,
@@ -18,8 +28,14 @@ import {
   GitPullRequest,
   Clock,
   Coins,
+  Terminal,
+  Loader2,
+  Copy,
+  Check,
+  FolderOpen,
 } from "lucide-react";
 import { MermaidDiagram } from "./mermaid-diagram";
+import { generateReviewExportToken } from "@/app/(dashboard)/dashboard/reviews/actions";
 
 // Gemini 1.5 Flash の料金
 const COST_PER_MILLION_TOKENS = 0.15;
@@ -102,10 +118,74 @@ function parseWalkthrough(walkthrough: string | null): WalkthroughItem[] {
   }
 }
 
+// Local storage key for folder path
+const FOLDER_PATH_KEY = "codehorse-folder-path";
+
 export function ReviewDetail({ review }: ReviewDetailProps) {
   const [activeTab, setActiveTab] = useState("summary");
+  const [isPending, startTransition] = useTransition();
+  const [applyError, setApplyError] = useState<string | null>(null);
+
+  // Dialog state
+  const [showApplyDialog, setShowApplyDialog] = useState(false);
+  const [folderPath, setFolderPath] = useState("");
+  const [generatedCommand, setGeneratedCommand] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const walkthroughItems = parseWalkthrough(review.walkthrough);
+
+  // Load saved folder path from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem(FOLDER_PATH_KEY);
+    if (saved) {
+      setFolderPath(saved);
+    }
+  }, []);
+
+  // Handle "Apply with Claude Code" button click - open dialog
+  const handleApplyWithClaude = () => {
+    setApplyError(null);
+    setGeneratedCommand(null);
+    setCopied(false);
+    setShowApplyDialog(true);
+  };
+
+  // Generate command and prepare for execution
+  const handleGenerateCommand = () => {
+    if (!folderPath.trim()) {
+      setApplyError("Please enter the folder path");
+      return;
+    }
+
+    // Save folder path to localStorage
+    localStorage.setItem(FOLDER_PATH_KEY, folderPath);
+
+    setApplyError(null);
+    startTransition(async () => {
+      const result = await generateReviewExportToken(review.id);
+      if (result.success && result.token) {
+        const apiUrl = typeof window !== "undefined"
+          ? window.location.origin
+          : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+        // Generate the command to run
+        const command = `cd "${folderPath}" && codehorse-handler "codehorse://apply?reviewId=${review.id}&token=${result.token}&apiUrl=${encodeURIComponent(apiUrl)}"`;
+        setGeneratedCommand(command);
+      } else {
+        setApplyError(result.error || "Failed to generate token");
+      }
+    });
+  };
+
+  // Copy command to clipboard
+  const handleCopyCommand = async () => {
+    if (generatedCommand) {
+      await navigator.clipboard.writeText(generatedCommand);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   const cost = review.tokenCount
     ? (review.tokenCount / 1_000_000) * COST_PER_MILLION_TOKENS
     : 0;
@@ -150,13 +230,34 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
                 </span>
               </div>
             </div>
-            <Button asChild>
-              <Link href={prUrl} target="_blank">
-                View on GitHub
-                <ExternalLink className="h-4 w-4 ml-2" />
-              </Link>
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={handleApplyWithClaude}
+                disabled={isPending || review.comments.length === 0}
+              >
+                {isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Terminal className="h-4 w-4 mr-2" />
+                )}
+                Apply with Claude Code
+              </Button>
+              <Button asChild>
+                <Link href={prUrl} target="_blank">
+                  View on GitHub
+                  <ExternalLink className="h-4 w-4 ml-2" />
+                </Link>
+              </Button>
+            </div>
           </div>
+
+          {/* Apply Error */}
+          {applyError && (
+            <div className="mt-4 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+              {applyError}
+            </div>
+          )}
 
           {/* Comment Stats */}
           <div className="flex items-center gap-4 mt-4 pt-4 border-t">
@@ -296,6 +397,111 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
           </TabsContent>
         )}
       </Tabs>
+
+      {/* Apply with Claude Code Dialog */}
+      <Dialog open={showApplyDialog} onOpenChange={setShowApplyDialog}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Terminal className="h-5 w-5" />
+              Apply with Claude Code
+            </DialogTitle>
+            <DialogDescription>
+              Enter the local folder path where your repository is cloned, then run the generated command in your terminal.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Folder Path Input */}
+            <div className="space-y-2">
+              <Label htmlFor="folderPath" className="flex items-center gap-2">
+                <FolderOpen className="h-4 w-4" />
+                Local Repository Path
+              </Label>
+              <Input
+                id="folderPath"
+                placeholder="/path/to/your/repository"
+                value={folderPath}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFolderPath(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Example: /Users/username/projects/my-repo
+              </p>
+            </div>
+
+            {/* Error Message */}
+            {applyError && (
+              <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+                {applyError}
+              </div>
+            )}
+
+            {/* Generate Button */}
+            {!generatedCommand && (
+              <Button
+                onClick={handleGenerateCommand}
+                disabled={isPending || !folderPath.trim()}
+                className="w-full"
+              >
+                {isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Terminal className="h-4 w-4 mr-2" />
+                )}
+                Generate Command
+              </Button>
+            )}
+
+            {/* Generated Command */}
+            {generatedCommand && (
+              <div className="space-y-2">
+                <Label>Run this command in your terminal:</Label>
+                <div className="relative">
+                  <pre className="p-3 bg-muted rounded-md text-xs overflow-x-auto whitespace-pre-wrap break-all">
+                    {generatedCommand}
+                  </pre>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="absolute top-2 right-2"
+                    onClick={handleCopyCommand}
+                  >
+                    {copied ? (
+                      <Check className="h-4 w-4 text-green-500" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  This command will launch Claude Code with the review content. The token expires in 5 minutes.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowApplyDialog(false)}>
+              Close
+            </Button>
+            {generatedCommand && (
+              <Button onClick={handleCopyCommand}>
+                {copied ? (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy Command
+                  </>
+                )}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
