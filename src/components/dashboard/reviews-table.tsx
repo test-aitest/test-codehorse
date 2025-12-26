@@ -12,7 +12,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ExternalLink, MessageSquare } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ExternalLink, MessageSquare, Eye } from "lucide-react";
 
 interface Review {
   id: string;
@@ -140,13 +141,18 @@ export function ReviewsTable({ reviews }: ReviewsTableProps) {
                   })}
                 </TableCell>
                 <TableCell>
-                  <Link
-                    href={prUrl}
-                    target="_blank"
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="sm" asChild>
+                      <Link href={`/dashboard/reviews/${review.id}`}>
+                        <Eye className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <Button variant="ghost" size="sm" asChild>
+                      <Link href={prUrl} target="_blank">
+                        <ExternalLink className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             );
