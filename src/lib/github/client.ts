@@ -312,6 +312,7 @@ export async function createPullRequestReview(
       path: string;
       position?: number;
       line?: number;
+      side?: "LEFT" | "RIGHT";
       body: string;
     }>;
     event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
