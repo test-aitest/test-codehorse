@@ -27,7 +27,7 @@ export const ReviewResultSchema = z.object({
   summary: z.string().describe("PRの変更内容の総合的なサマリー（1-3段落）"),
   walkthrough: z.array(FileSummarySchema).describe("各ファイルの変更概要"),
   comments: z.array(InlineCommentSchema).describe("インラインコメントのリスト"),
-  diagram: z.string().optional().describe("変更のアーキテクチャ図（Mermaid形式）"),
+  diagram: z.string().nullish().describe("変更のアーキテクチャ図（Mermaid形式）"),
 });
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;
 

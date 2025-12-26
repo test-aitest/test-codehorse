@@ -83,7 +83,7 @@ ${ragContext}
 export function buildSummaryComment(params: {
   summary: string;
   walkthrough: Array<{ path: string; summary: string; changeType: string }>;
-  diagram?: string;
+  diagram?: string | null;
   commentsCount: number;
   criticalCount: number;
   importantCount: number;
