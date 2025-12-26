@@ -167,10 +167,11 @@ export async function generateReview(params: GenerateReviewParams): Promise<Gene
 
 /**
  * レビュー結果をGitHub API用にフォーマット
+ * すべてのコメントをサマリー本文に含める（インラインコメントは使用しない）
  */
 export function formatForGitHubReview(review: GeneratedReview): {
   body: string;
-  comments: Array<{ path: string; position?: number; line?: number; body: string }>;
+  comments: Array<{ path: string; line: number; side: "RIGHT"; body: string }>;
   event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
 } {
   const hasCritical = review.inlineComments.some((c) => c.severity === "CRITICAL");
@@ -180,16 +181,29 @@ export function formatForGitHubReview(review: GeneratedReview): {
     ? "REQUEST_CHANGES"
     : "COMMENT";
 
-  // コメントをGitHub形式に変換
-  const comments = review.inlineComments.map((c) => ({
-    path: c.path,
-    line: c.line,
-    body: c.body,
-  }));
+  // すべてのコメントをサマリー本文に追加
+  let finalBody = review.summaryComment;
 
+  if (review.inlineComments.length > 0) {
+    finalBody += "\n\n---\n\n## 📝 Code Review Comments\n\n";
+
+    for (const comment of review.inlineComments) {
+      const severityEmoji = {
+        CRITICAL: "🔴",
+        IMPORTANT: "🟠",
+        INFO: "🔵",
+        NITPICK: "⚪",
+      }[comment.severity] || "💬";
+
+      finalBody += `### ${severityEmoji} \`${comment.path}:${comment.line}\`\n\n`;
+      finalBody += `${comment.body}\n\n`;
+    }
+  }
+
+  // インラインコメントは空配列（すべてサマリーに含める）
   return {
-    body: review.summaryComment,
-    comments,
+    body: finalBody,
+    comments: [],
     event,
   };
 }
