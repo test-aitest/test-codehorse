@@ -28,6 +28,7 @@ import {
   Trash2,
   Loader2,
   Settings,
+  AlertTriangle,
 } from "lucide-react";
 import {
   reindexRepository,
@@ -41,6 +42,7 @@ interface Repository {
   fullName: string;
   htmlUrl: string;
   indexStatus: string;
+  installationId: number;
   lastIndexedAt: Date | null;
   createdAt: Date;
   _count: {
@@ -111,6 +113,7 @@ function RepositoryCard({ repo }: { repo: Repository }) {
   };
 
   const isIndexing = repo.indexStatus === "INDEXING";
+  const hasValidInstallation = repo.installationId > 0;
 
   return (
     <Card>
@@ -128,6 +131,12 @@ function RepositoryCard({ repo }: { repo: Repository }) {
                   {repo.fullName}
                 </Link>
                 {getIndexStatusBadge(repo.indexStatus)}
+                {!hasValidInstallation && (
+                  <Badge variant="destructive" className="gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    Not Connected
+                  </Badge>
+                )}
               </div>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <span>{repo._count.pullRequests} PRs reviewed</span>
@@ -141,6 +150,12 @@ function RepositoryCard({ repo }: { repo: Repository }) {
                   </span>
                 )}
               </div>
+              {!hasValidInstallation && (
+                <p className="text-sm text-amber-600">
+                  This repository needs to be reconnected via the GitHub App.
+                  Please use &quot;Add Repository&quot; to reconnect.
+                </p>
+              )}
               {error && (
                 <p className="text-sm text-destructive">{error}</p>
               )}
@@ -158,7 +173,8 @@ function RepositoryCard({ repo }: { repo: Repository }) {
               variant="outline"
               size="sm"
               onClick={handleReindex}
-              disabled={isReindexing || isIndexing}
+              disabled={isReindexing || isIndexing || !hasValidInstallation}
+              title={!hasValidInstallation ? "Reconnect via Add Repository first" : undefined}
             >
               {isReindexing || isIndexing ? (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Header } from "@/components/dashboard/header";
 import { RepositoryList } from "@/components/dashboard/repository-list";
+import { AddRepositoryDialog } from "@/components/dashboard/add-repository-dialog";
 
 async function getRepositories() {
   const repositories = await prisma.repository.findMany({
@@ -38,6 +39,9 @@ export default async function RepositoriesPage() {
         description="Manage your connected repositories"
       />
       <div className="p-6">
+        <div className="flex justify-end mb-4">
+          <AddRepositoryDialog />
+        </div>
         <RepositoryList repositories={repositories} />
       </div>
     </div>

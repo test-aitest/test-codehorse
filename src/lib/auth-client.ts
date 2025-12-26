@@ -2,8 +2,16 @@
 
 import { createAuthClient } from "better-auth/react";
 
+// ブラウザ環境では現在のoriginを使用
+const getBaseURL = () => {
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+  return process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+};
+
 export const authClient = createAuthClient({
-  baseURL: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+  baseURL: getBaseURL(),
 });
 
 export const { signIn, signOut, useSession } = authClient;

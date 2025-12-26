@@ -140,13 +140,14 @@ export const indexOnInstallJob = inngest.createFunction(
 
     console.log(`[Inngest] Indexing repository on install: ${fullName}`);
 
-    // Step 1: リポジトリをDBに作成または取得
+    // Step 1: リポジトリをDBに作成または更新
     const repository = await step.run("ensure-repository", async () => {
       let existing = await prisma.repository.findFirst({
         where: { owner, name: repo },
       });
 
       if (!existing) {
+        // 新規作成
         existing = await prisma.repository.create({
           data: {
             githubRepoId: 0, // Webhookからは取得できないのでプレースホルダー
@@ -158,6 +159,13 @@ export const indexOnInstallJob = inngest.createFunction(
             indexStatus: "NOT_INDEXED",
           },
         });
+      } else if (existing.installationId !== installationId) {
+        // 既存リポジトリのinstallationIdを更新
+        existing = await prisma.repository.update({
+          where: { id: existing.id },
+          data: { installationId },
+        });
+        console.log(`[Inngest] Updated installationId for ${fullName}: ${installationId}`);
       }
 
       return existing;
