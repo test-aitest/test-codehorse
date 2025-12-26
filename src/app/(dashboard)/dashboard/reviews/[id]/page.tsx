@@ -47,12 +47,12 @@ export default async function ReviewDetailPage({ params }: ReviewDetailPageProps
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-full flex-col">
       <Header
         title="Review Details"
         description={`${review.pullRequest.repository.fullName} #${review.pullRequest.number}`}
       />
-      <div className="p-6">
+      <div className="flex-1 overflow-auto p-6">
         <ReviewDetail review={review} />
       </div>
     </div>

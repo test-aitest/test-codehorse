@@ -42,12 +42,12 @@ export default async function ReviewsPage() {
   const reviews = await getReviews();
 
   return (
-    <div className="flex flex-col">
+    <div className="flex h-full flex-col">
       <Header
         title="Review History"
         description="View all AI code reviews and their costs"
       />
-      <div className="p-6">
+      <div className="flex-1 overflow-auto p-6">
         <ReviewsTable reviews={reviews} />
       </div>
     </div>

@@ -312,6 +312,7 @@ export async function createPullRequestReview(
       path: string;
       position?: number;
       line?: number;
+      side?: "LEFT" | "RIGHT";
       body: string;
     }>;
     event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
@@ -413,5 +414,97 @@ export async function createReviewCommentReply(
       comment_id: commentId,
       body,
     });
+  });
+}
+
+// =====================================================
+// GitHub App インストール管理
+// =====================================================
+
+/**
+ * GitHub Appの全インストール情報を取得
+ */
+export async function getAppInstallations() {
+  const githubApp = getApp();
+
+  return rateLimitedRequest(async () => {
+    const installations: Array<{
+      id: number;
+      account: {
+        login: string;
+        avatar_url: string;
+        type: string;
+      };
+      repository_selection: string;
+    }> = [];
+
+    for await (const { installation } of githubApp.eachInstallation.iterator()) {
+      installations.push({
+        id: installation.id,
+        account: {
+          login: installation.account?.login || "unknown",
+          avatar_url: installation.account?.avatar_url || "",
+          type: installation.account?.type || "User",
+        },
+        repository_selection: installation.repository_selection || "all",
+      });
+    }
+
+    return installations;
+  });
+}
+
+/**
+ * インストールで利用可能なリポジトリ一覧を取得
+ */
+export async function getInstallationRepositories(installationId: number) {
+  const octokit = await getInstallationOctokit(installationId);
+
+  return rateLimitedRequest(async () => {
+    const response = await octokit.rest.apps.listReposAccessibleToInstallation({
+      per_page: 100,
+    });
+
+    return response.data.repositories.map((repo) => ({
+      id: repo.id,
+      name: repo.name,
+      fullName: repo.full_name,
+      owner: repo.owner.login,
+      htmlUrl: repo.html_url,
+      isPrivate: repo.private,
+      defaultBranch: repo.default_branch,
+      description: repo.description,
+      language: repo.language,
+    }));
+  });
+}
+
+/**
+ * リポジトリ情報を取得
+ */
+export async function getRepository(
+  installationId: number,
+  owner: string,
+  repo: string
+) {
+  const octokit = await getInstallationOctokit(installationId);
+
+  return rateLimitedRequest(async () => {
+    const response = await octokit.rest.repos.get({
+      owner,
+      repo,
+    });
+
+    return {
+      id: response.data.id,
+      name: response.data.name,
+      fullName: response.data.full_name,
+      owner: response.data.owner.login,
+      htmlUrl: response.data.html_url,
+      isPrivate: response.data.private,
+      defaultBranch: response.data.default_branch,
+      description: response.data.description,
+      language: response.data.language,
+    };
   });
 }

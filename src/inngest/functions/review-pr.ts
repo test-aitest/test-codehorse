@@ -284,13 +284,27 @@ export const reviewPR = inngest.createFunction(
       const octokit = await getInstallationOctokit(installationId);
       const githubReview = formatForGitHubReview(aiReview);
 
-      await createPullRequestReview(octokit, owner, repo, prNumber, headSha, {
-        body: githubReview.body,
-        comments: githubReview.comments,
+      console.log("[Inngest] Posting review with comments:", {
+        commentsCount: githubReview.comments.length,
+        comments: githubReview.comments.map(c => ({ path: c.path, line: c.line, side: c.side })),
         event: githubReview.event,
       });
 
-      console.log("[Inngest] Posted review to GitHub");
+      try {
+        await createPullRequestReview(octokit, owner, repo, prNumber, headSha, {
+          body: githubReview.body,
+          comments: githubReview.comments,
+          event: githubReview.event,
+        });
+        console.log("[Inngest] Posted review to GitHub successfully");
+      } catch (error: any) {
+        console.error("[Inngest] Failed to post review:", {
+          message: error.message,
+          status: error.status,
+          response: error.response?.data,
+        });
+        throw error;
+      }
     });
 
     console.log("[Inngest] PR review completed", { prNumber });
@@ -504,11 +518,27 @@ This review covers changes from \`${beforeSha.slice(
 
 ${githubReview.body}`;
 
-      await createPullRequestReview(octokit, owner, repo, prNumber, afterSha, {
-        body: incrementalBody,
-        comments: githubReview.comments,
+      console.log("[Inngest] Posting incremental review with comments:", {
+        commentsCount: githubReview.comments.length,
+        comments: githubReview.comments.map(c => ({ path: c.path, line: c.line, side: c.side })),
         event: githubReview.event,
       });
+
+      try {
+        await createPullRequestReview(octokit, owner, repo, prNumber, afterSha, {
+          body: incrementalBody,
+          comments: githubReview.comments,
+          event: githubReview.event,
+        });
+        console.log("[Inngest] Posted incremental review to GitHub successfully");
+      } catch (error: any) {
+        console.error("[Inngest] Failed to post incremental review:", {
+          message: error.message,
+          status: error.status,
+          response: error.response?.data,
+        });
+        throw error;
+      }
     });
 
     return {

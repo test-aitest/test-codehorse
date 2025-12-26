@@ -10,7 +10,7 @@ interface HeaderProps {
 
 export function Header({ title, description }: HeaderProps) {
   return (
-    <header className="flex h-14 items-center justify-between border-b px-4 lg:px-6">
+    <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between border-b bg-background px-4 lg:px-6">
       <div className="flex items-center gap-4">
         {/* Mobile menu button */}
         <Button variant="ghost" size="icon" className="lg:hidden">
