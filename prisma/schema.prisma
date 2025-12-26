@@ -1,0 +1,275 @@
+// CodeHorse Prisma Schema
+// AI-Powered Code Review Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========================================
+// Better Auth 必須テーブル
+// ========================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  emailVerified Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // リレーション
+  accounts     Account[]
+  sessions     Session[]
+  repositories UserRepository[]
+  subscription Subscription?
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String    // GitHub数値ID
+  providerId            String    // "github"
+  accessToken           String?   @db.Text
+  refreshToken          String?   @db.Text
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?   @db.Text
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([identifier, value])
+}
+
+// ========================================
+// コアドメインモデル
+// ========================================
+
+model Repository {
+  id             String      @id @default(cuid())
+  githubRepoId   Int         @unique
+  owner          String
+  name           String
+  fullName       String      // "owner/name"
+  htmlUrl        String
+  defaultBranch  String      @default("main")
+  isPrivate      Boolean     @default(false)
+  language       String?
+  description    String?     @db.Text
+
+  // GitHub App情報
+  installationId Int
+
+  // インデキシング状態
+  indexStatus      IndexStatus @default(NOT_INDEXED)
+  lastIndexedAt    DateTime?
+  indexedCommitSha String?     // 最後にインデックスしたコミット
+
+  // リポジトリ設定 (.codehorse.yaml のキャッシュ)
+  config Json?
+
+  // リレーション
+  pullRequests PullRequest[]
+  users        UserRepository[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([installationId])
+  @@index([owner, name])
+}
+
+model UserRepository {
+  userId       String
+  repositoryId String
+  permission   RepositoryPermission @default(READ)
+  isConnected  Boolean              @default(true) // レビュー有効/無効
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  @@id([userId, repositoryId])
+}
+
+model PullRequest {
+  id           String  @id @default(cuid())
+  repositoryId String
+  number       Int
+  title        String
+  state        PRState @default(OPEN)
+  author       String
+
+  // 増分レビュー用
+  baseSha         String
+  headSha         String
+  lastReviewedSha String? // 最後にレビューしたコミット
+
+  // リレーション
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  reviews    Review[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([repositoryId, number])
+  @@index([repositoryId])
+}
+
+model Review {
+  id            String       @id @default(cuid())
+  pullRequestId String
+  commitSha     String
+  status        ReviewStatus @default(PENDING)
+
+  // AI生成コンテンツ
+  summary     String? @db.Text
+  walkthrough String? @db.Text
+  diagram     String? @db.Text // Mermaid形式
+
+  // メタデータ
+  tokenCount   Int?    // 使用トークン数
+  processingMs Int?    // 処理時間(ms)
+  errorMessage String? @db.Text
+
+  // リレーション
+  pullRequest PullRequest     @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  comments    ReviewComment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pullRequestId])
+  @@index([commitSha])
+}
+
+model ReviewComment {
+  id              String @id @default(cuid())
+  reviewId        String
+  githubCommentId Int?   @unique // GitHub投稿後のID
+
+  filePath     String
+  lineNumber   Int
+  diffPosition Int?     // GitHub API用のdiff内位置
+  body         String   @db.Text
+  severity     Severity @default(INFO)
+  category     String?  // "security", "performance", "style" など
+
+  // 修正提案
+  suggestion String? @db.Text
+
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([reviewId])
+}
+
+// ========================================
+// 課金・サブスクリプション (Polar.sh)
+// ========================================
+
+model Subscription {
+  id                  String @id @default(cuid())
+  userId              String @unique
+  polarSubscriptionId String? @unique
+  polarCustomerId     String?
+
+  status SubStatus @default(FREE)
+  planId PlanId    @default(FREE)
+
+  // 使用量追跡
+  reviewsThisMonth Int      @default(0)
+  lastResetAt      DateTime @default(now())
+
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  canceledAt         DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ========================================
+// Enum定義
+// ========================================
+
+enum IndexStatus {
+  NOT_INDEXED
+  INDEXING
+  COMPLETED
+  FAILED
+}
+
+enum PRState {
+  OPEN
+  CLOSED
+  MERGED
+}
+
+enum ReviewStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum Severity {
+  CRITICAL
+  IMPORTANT
+  INFO
+  NITPICK
+}
+
+enum RepositoryPermission {
+  ADMIN
+  WRITE
+  READ
+}
+
+enum SubStatus {
+  FREE
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+}
+
+enum PlanId {
+  FREE
+  PRO
+  ENTERPRISE
+}
