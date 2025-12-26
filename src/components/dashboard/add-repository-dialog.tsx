@@ -220,7 +220,7 @@ export function AddRepositoryDialog() {
 
                 {loadingRepos ? (
                   <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    {/* <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /> */}
                   </div>
                 ) : repositories.length === 0 ? (
                   <p className="text-center text-muted-foreground py-4">
@@ -245,7 +245,10 @@ export function AddRepositoryDialog() {
                               <Globe className="h-3 w-3 text-muted-foreground shrink-0" />
                             )}
                             {repo.language && (
-                              <Badge variant="secondary" className="text-xs shrink-0">
+                              <Badge
+                                variant="secondary"
+                                className="text-xs shrink-0"
+                              >
                                 {repo.language}
                               </Badge>
                             )}
