@@ -17,6 +17,7 @@
     "better-auth": "^1.4.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
     "gitdiff-parser": "^0.3.1",
     "inngest": "^3.48.1",
     "lucide-react": "^0.562.0",
