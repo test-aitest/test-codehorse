@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { ja } from "date-fns/locale";
@@ -7,14 +8,31 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   GitBranch,
   ExternalLink,
   Database,
   CheckCircle2,
-  Clock,
   XCircle,
   RefreshCw,
+  Trash2,
+  Loader2,
+  Settings,
 } from "lucide-react";
+import {
+  reindexRepository,
+  disconnectRepository,
+} from "@/app/(dashboard)/dashboard/repositories/actions";
 
 interface Repository {
   id: string;
@@ -46,7 +64,7 @@ function getIndexStatusBadge(status: string) {
     case "INDEXING":
       return (
         <Badge variant="secondary" className="gap-1">
-          <Clock className="h-3 w-3" />
+          <Loader2 className="h-3 w-3 animate-spin" />
           Indexing...
         </Badge>
       );
@@ -57,13 +75,6 @@ function getIndexStatusBadge(status: string) {
           Failed
         </Badge>
       );
-    case "PENDING":
-      return (
-        <Badge variant="outline" className="gap-1">
-          <Clock className="h-3 w-3" />
-          Pending
-        </Badge>
-      );
     default:
       return (
         <Badge variant="outline" className="gap-1">
@@ -72,6 +83,139 @@ function getIndexStatusBadge(status: string) {
         </Badge>
       );
   }
+}
+
+function RepositoryCard({ repo }: { repo: Repository }) {
+  const [isReindexing, startReindexTransition] = useTransition();
+  const [isDisconnecting, startDisconnectTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const handleReindex = () => {
+    setError(null);
+    startReindexTransition(async () => {
+      const result = await reindexRepository(repo.id);
+      if (!result.success) {
+        setError(result.error || "Failed to start reindex");
+      }
+    });
+  };
+
+  const handleDisconnect = () => {
+    setError(null);
+    startDisconnectTransition(async () => {
+      const result = await disconnectRepository(repo.id);
+      if (!result.success) {
+        setError(result.error || "Failed to disconnect repository");
+      }
+    });
+  };
+
+  const isIndexing = repo.indexStatus === "INDEXING";
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <GitBranch className="h-5 w-5 text-muted-foreground mt-0.5" />
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Link
+                  href={repo.htmlUrl}
+                  target="_blank"
+                  className="font-medium hover:underline"
+                >
+                  {repo.fullName}
+                </Link>
+                {getIndexStatusBadge(repo.indexStatus)}
+              </div>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <span>{repo._count.pullRequests} PRs reviewed</span>
+                {repo.lastIndexedAt && (
+                  <span>
+                    Last indexed:{" "}
+                    {formatDistanceToNow(new Date(repo.lastIndexedAt), {
+                      addSuffix: true,
+                      locale: ja,
+                    })}
+                  </span>
+                )}
+              </div>
+              {error && (
+                <p className="text-sm text-destructive">{error}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/dashboard/repositories/${repo.id}/settings`}>
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
+              </Link>
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReindex}
+              disabled={isReindexing || isIndexing}
+            >
+              {isReindexing || isIndexing ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
+              {isIndexing ? "Indexing..." : "Re-index"}
+            </Button>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  disabled={isDisconnecting}
+                >
+                  {isDisconnecting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>リポジトリの連携を解除</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    <strong>{repo.fullName}</strong> の連携を解除しますか？
+                    <br />
+                    <br />
+                    この操作により、このリポジトリに関連するすべてのレビュー履歴が削除されます。
+                    この操作は元に戻せません。
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleDisconnect}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    連携を解除
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <Button variant="ghost" size="sm" asChild>
+              <Link href={repo.htmlUrl} target="_blank">
+                <ExternalLink className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export function RepositoryList({ repositories }: RepositoryListProps) {
@@ -102,50 +246,7 @@ export function RepositoryList({ repositories }: RepositoryListProps) {
   return (
     <div className="space-y-4">
       {repositories.map((repo) => (
-        <Card key={repo.id}>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <GitBranch className="h-5 w-5 text-muted-foreground mt-0.5" />
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Link
-                      href={repo.htmlUrl}
-                      target="_blank"
-                      className="font-medium hover:underline"
-                    >
-                      {repo.fullName}
-                    </Link>
-                    {getIndexStatusBadge(repo.indexStatus)}
-                  </div>
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <span>{repo._count.pullRequests} PRs reviewed</span>
-                    {repo.lastIndexedAt && (
-                      <span>
-                        Last indexed:{" "}
-                        {formatDistanceToNow(new Date(repo.lastIndexedAt), {
-                          addSuffix: true,
-                          locale: ja,
-                        })}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" disabled>
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Re-index
-                </Button>
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href={repo.htmlUrl} target="_blank">
-                    <ExternalLink className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <RepositoryCard key={repo.id} repo={repo} />
       ))}
     </div>
   );
