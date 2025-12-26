@@ -130,6 +130,7 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
   const [showApplyDialog, setShowApplyDialog] = useState(false);
   const [folderPath, setFolderPath] = useState("");
   const [generatedCommand, setGeneratedCommand] = useState<string | null>(null);
+  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const walkthroughItems = parseWalkthrough(review.walkthrough);
@@ -146,6 +147,7 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
   const handleApplyWithClaude = () => {
     setApplyError(null);
     setGeneratedCommand(null);
+    setGeneratedUrl(null);
     setCopied(false);
     setShowApplyDialog(true);
   };
@@ -168,13 +170,23 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
           ? window.location.origin
           : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-        // Generate the command to run
-        const command = `cd "${folderPath}" && codehorse-handler "codehorse://apply?reviewId=${review.id}&token=${result.token}&apiUrl=${encodeURIComponent(apiUrl)}"`;
+        // Generate the URL and command
+        const url = `codehorse://apply?reviewId=${review.id}&token=${result.token}&apiUrl=${encodeURIComponent(apiUrl)}&folderPath=${encodeURIComponent(folderPath)}`;
+        const command = `cd "${folderPath}" && codehorse-handler "${url}"`;
+        setGeneratedUrl(url);
         setGeneratedCommand(command);
       } else {
         setApplyError(result.error || "Failed to generate token");
       }
     });
+  };
+
+  // Open Terminal with the command
+  const handleOpenTerminal = () => {
+    if (generatedUrl) {
+      // Open the URL scheme which will be caught by the macOS handler
+      window.location.href = generatedUrl;
+    }
   };
 
   // Copy command to clipboard
@@ -485,18 +497,9 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
               Close
             </Button>
             {generatedCommand && (
-              <Button onClick={handleCopyCommand}>
-                {copied ? (
-                  <>
-                    <Check className="h-4 w-4 mr-2" />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-4 w-4 mr-2" />
-                    Copy Command
-                  </>
-                )}
+              <Button onClick={handleOpenTerminal}>
+                <Terminal className="h-4 w-4 mr-2" />
+                Open in Terminal
               </Button>
             )}
           </DialogFooter>

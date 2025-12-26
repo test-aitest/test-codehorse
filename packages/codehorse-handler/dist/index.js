@@ -17,7 +17,7 @@ const claude_invoker_js_1 = require("./claude-invoker.js");
 const config_js_1 = require("./config.js");
 /**
  * Parse URL scheme parameters
- * URL format: codehorse://apply?reviewId=xxx&token=yyy&apiUrl=zzz
+ * URL format: codehorse://apply?reviewId=xxx&token=yyy&apiUrl=zzz&folderPath=...
  */
 function parseUrlScheme(url) {
     try {
@@ -26,10 +26,11 @@ function parseUrlScheme(url) {
         const reviewId = urlObj.searchParams.get("reviewId");
         const token = urlObj.searchParams.get("token");
         const apiUrl = urlObj.searchParams.get("apiUrl");
+        const folderPath = urlObj.searchParams.get("folderPath");
         if (!reviewId || !token || !apiUrl) {
             return null;
         }
-        return { reviewId, token, apiUrl };
+        return { reviewId, token, apiUrl, folderPath: folderPath || undefined };
     }
     catch {
         return null;
@@ -111,9 +112,16 @@ async function applyReview(params) {
             spinner.succeed("No comments to apply.");
             return;
         }
-        // Find local repository
-        spinner.text = `Looking for local repository: ${reviewData.review.repository.fullName}`;
-        const repoPath = await findRepoPath(reviewData.review.repository.fullName);
+        // Find local repository - use folderPath from URL if provided
+        let repoPath = null;
+        if (params.folderPath && (0, fs_1.existsSync)(params.folderPath)) {
+            repoPath = params.folderPath;
+            spinner.text = `Using specified folder: ${repoPath}`;
+        }
+        else {
+            spinner.text = `Looking for local repository: ${reviewData.review.repository.fullName}`;
+            repoPath = await findRepoPath(reviewData.review.repository.fullName);
+        }
         if (!repoPath) {
             spinner.fail(`Could not find local repository for ${reviewData.review.repository.fullName}`);
             console.log(chalk_1.default.yellow("\nPlease specify the repository path using:\n" +
@@ -149,15 +157,17 @@ commander_1.program
     .action(async (url) => {
     if (!url) {
         commander_1.program.help();
-        return;
+        // program.help() calls process.exit() internally
     }
-    const params = parseUrlScheme(url);
-    if (!params) {
-        console.error(chalk_1.default.red("Invalid URL format"));
-        console.log("Expected: codehorse://apply?reviewId=xxx&token=yyy&apiUrl=zzz");
-        process.exit(1);
+    else {
+        const params = parseUrlScheme(url);
+        if (!params) {
+            console.error(chalk_1.default.red("Invalid URL format"));
+            console.log("Expected: codehorse://apply?reviewId=xxx&token=yyy&apiUrl=zzz");
+            process.exit(1);
+        }
+        await applyReview(params);
     }
-    await applyReview(params);
 });
 // Config command
 const configCmd = commander_1.program.command("config").description("Manage configuration");

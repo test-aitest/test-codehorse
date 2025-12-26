@@ -36,5 +36,6 @@ export interface ApplyParams {
     reviewId: string;
     token: string;
     apiUrl: string;
+    folderPath?: string;
 }
 //# sourceMappingURL=types.d.ts.map

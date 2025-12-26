@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # CodeHorse URL Scheme Registration for macOS
-# This script creates an AppleScript-based handler for the codehorse:// URL scheme
+# This script creates an AppleScript application for the codehorse:// URL scheme
 
 set -e
 
@@ -17,59 +17,93 @@ fi
 
 echo "Creating $APP_NAME.app..."
 
-# Create app bundle structure
-mkdir -p "$APP_PATH/Contents/MacOS"
-mkdir -p "$APP_PATH/Contents/Resources"
+# Remove old app if exists
+rm -rf "$APP_PATH"
 
-# Create Info.plist with URL scheme handler
-cat > "$APP_PATH/Contents/Info.plist" << 'PLIST_EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>handler</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.codehorse.handler</string>
-    <key>CFBundleName</key>
-    <string>CodeHorse Handler</string>
-    <key>CFBundleVersion</key>
-    <string>1.0</string>
-    <key>CFBundleURLTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleURLName</key>
-            <string>CodeHorse URL</string>
-            <key>CFBundleURLSchemes</key>
-            <array>
-                <string>codehorse</string>
-            </array>
-        </dict>
-    </array>
-    <key>LSBackgroundOnly</key>
-    <false/>
-</dict>
-</plist>
-PLIST_EOF
+# Create the AppleScript source
+SCRIPT_SOURCE="/tmp/codehorse-handler-source.applescript"
 
-# Create the handler script that properly passes the URL
-cat > "$APP_PATH/Contents/MacOS/handler" << HANDLER_EOF
+# Create a .command file (macOS double-click executable)
+RUNNER_SCRIPT="$HOME/.codehorse/run-handler.command"
+mkdir -p "$HOME/.codehorse"
+
+cat > "$RUNNER_SCRIPT" << RUNNER_EOF
 #!/bin/bash
-# Log the received URL for debugging
-echo "Received URL: \$1" >> /tmp/codehorse-handler.log
+# CodeHorse Handler Runner Script
 
-# Run the handler in a new Terminal window
-osascript <<APPLESCRIPT
-tell application "Terminal"
-    activate
-    do script "$HANDLER_PATH '\$1'"
-end tell
-APPLESCRIPT
-HANDLER_EOF
+# Change to home directory
+cd ~
 
-chmod +x "$APP_PATH/Contents/MacOS/handler"
+# Read URL from temp file
+URL=\$(cat /tmp/codehorse-url.txt 2>/dev/null)
+
+if [ -z "\$URL" ]; then
+    echo "=========================================="
+    echo "Error: No URL found"
+    echo "=========================================="
+    echo ""
+    exec bash
+fi
+
+echo "=========================================="
+echo "CodeHorse Handler"
+echo "=========================================="
+echo ""
+echo "URL: \$URL"
+echo ""
+
+# Run the handler
+$HANDLER_PATH "\$URL"
+
+echo ""
+echo "=========================================="
+echo "Handler completed. Terminal will stay open."
+echo "=========================================="
+exec bash
+RUNNER_EOF
+
+chmod +x "$RUNNER_SCRIPT"
+
+# Create AppleScript that writes URL to file and opens the .command file
+cat > "$SCRIPT_SOURCE" << APPLESCRIPT_EOF
+on open location theURL
+    -- Log the received URL
+    do shell script "echo \$(date): URL=" & quoted form of theURL & " >> /tmp/codehorse-handler.log"
+
+    -- Write URL to temp file
+    do shell script "echo " & quoted form of theURL & " > /tmp/codehorse-url.txt"
+
+    -- Open the .command file (this opens in Terminal automatically)
+    do shell script "open $RUNNER_SCRIPT"
+end open location
+
+on run
+    display dialog "CodeHorse Handler is installed and ready to handle codehorse:// URLs." buttons {"OK"} default button "OK"
+end run
+APPLESCRIPT_EOF
+
+# Compile to app
+osacompile -o "$APP_PATH" "$SCRIPT_SOURCE"
+
+# Now update the Info.plist to add URL scheme handling
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string 'CodeHorse URL'" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string 'codehorse'" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.codehorse.handler" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true
+
+# Clean up
+rm -f "$SCRIPT_SOURCE"
+
+# Kill any running instance
+pkill -f "CodeHorse Handler" 2>/dev/null || true
 
 # Register the URL scheme
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_PATH"
+
+# Also register with Launch Services database reset
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -kill -r -domain local -domain system -domain user 2>/dev/null || true
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_PATH"
 
 echo "✅ URL scheme registered successfully!"
@@ -77,5 +111,7 @@ echo ""
 echo "The codehorse:// URL scheme is now registered."
 echo "App location: $APP_PATH"
 echo ""
-echo "To test, run:"
+echo "Testing URL scheme..."
 echo "  open 'codehorse://test'"
+echo ""
+echo "If the Terminal opens with the test URL, it's working!"

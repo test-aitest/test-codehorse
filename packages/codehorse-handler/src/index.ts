@@ -16,7 +16,7 @@ import type { ApplyParams } from "./types.js";
 
 /**
  * Parse URL scheme parameters
- * URL format: codehorse://apply?reviewId=xxx&token=yyy&apiUrl=zzz
+ * URL format: codehorse://apply?reviewId=xxx&token=yyy&apiUrl=zzz&folderPath=...
  */
 function parseUrlScheme(url: string): ApplyParams | null {
   try {
@@ -26,12 +26,13 @@ function parseUrlScheme(url: string): ApplyParams | null {
     const reviewId = urlObj.searchParams.get("reviewId");
     const token = urlObj.searchParams.get("token");
     const apiUrl = urlObj.searchParams.get("apiUrl");
+    const folderPath = urlObj.searchParams.get("folderPath");
 
     if (!reviewId || !token || !apiUrl) {
       return null;
     }
 
-    return { reviewId, token, apiUrl };
+    return { reviewId, token, apiUrl, folderPath: folderPath || undefined };
   } catch {
     return null;
   }
@@ -130,9 +131,16 @@ async function applyReview(params: ApplyParams): Promise<void> {
       return;
     }
 
-    // Find local repository
-    spinner.text = `Looking for local repository: ${reviewData.review.repository.fullName}`;
-    const repoPath = await findRepoPath(reviewData.review.repository.fullName);
+    // Find local repository - use folderPath from URL if provided
+    let repoPath: string | null = null;
+
+    if (params.folderPath && existsSync(params.folderPath)) {
+      repoPath = params.folderPath;
+      spinner.text = `Using specified folder: ${repoPath}`;
+    } else {
+      spinner.text = `Looking for local repository: ${reviewData.review.repository.fullName}`;
+      repoPath = await findRepoPath(reviewData.review.repository.fullName);
+    }
 
     if (!repoPath) {
       spinner.fail(
@@ -181,17 +189,17 @@ program
   .action(async (url?: string) => {
     if (!url) {
       program.help();
-      return;
-    }
+      // program.help() calls process.exit() internally
+    } else {
+      const params = parseUrlScheme(url);
+      if (!params) {
+        console.error(chalk.red("Invalid URL format"));
+        console.log("Expected: codehorse://apply?reviewId=xxx&token=yyy&apiUrl=zzz");
+        process.exit(1);
+      }
 
-    const params = parseUrlScheme(url);
-    if (!params) {
-      console.error(chalk.red("Invalid URL format"));
-      console.log("Expected: codehorse://apply?reviewId=xxx&token=yyy&apiUrl=zzz");
-      process.exit(1);
+      await applyReview(params);
     }
-
-    await applyReview(params);
   });
 
 // Config command
