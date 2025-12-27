@@ -88,12 +88,20 @@ export async function generateReview(params: GenerateReviewParams): Promise<Gene
   console.log(`[AI Review] Input tokens: ${totalTokens}`);
 
   // AI生成
-  const { text } = await generateText({
-    model: MODEL_CONFIG.review.model,
-    system: REVIEW_SYSTEM_PROMPT,
-    prompt,
-    temperature: MODEL_CONFIG.review.temperature,
-  });
+  let text: string;
+  try {
+    const response = await generateText({
+      model: MODEL_CONFIG.review.model,
+      system: REVIEW_SYSTEM_PROMPT,
+      prompt,
+      temperature: MODEL_CONFIG.review.temperature,
+    });
+    text = response.text;
+    console.log(`[AI Review] Response received, length: ${text.length}`);
+  } catch (apiError) {
+    console.error("[AI Review] API call failed:", apiError);
+    throw new Error(`AI API call failed: ${(apiError as Error).message}`);
+  }
 
   // JSONをパース
   let result: ReviewResult;
@@ -118,11 +126,13 @@ export async function generateReview(params: GenerateReviewParams): Promise<Gene
     const parsed = JSON.parse(jsonStr);
     result = ReviewResultSchema.parse(parsed);
   } catch (error) {
-    console.error("[AI Review] Failed to parse response:", text);
-    console.error("[AI Review] Parse error:", error);
+    console.error("[AI Review] Failed to parse response");
+    console.error("[AI Review] Response text (first 500 chars):", text.slice(0, 500));
+    console.error("[AI Review] Response text (last 500 chars):", text.slice(-500));
+    console.error("[AI Review] Parse error:", (error as Error).message);
     // フォールバック: 最小限のレビュー結果を返す
     result = {
-      summary: "レビュー生成中にエラーが発生しました。再試行してください。",
+      summary: `レビュー生成中にエラーが発生しました: ${(error as Error).message}`,
       walkthrough: files.map(f => ({
         path: f.newPath,
         summary: `${f.type} changes`,
