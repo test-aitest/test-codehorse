@@ -17,6 +17,32 @@ function getOpenAI(): OpenAI {
 // Embedding モデル設定
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const EMBEDDING_DIMENSIONS = 1536; // text-embedding-3-small のデフォルト次元数
+const MAX_TOKENS = 4000; // text-embedding-3-small の上限は8192、コードは推定が難しいため大きな余裕を持って4000
+
+/**
+ * テキストの推定トークン数を計算（非常に保守的な概算：1トークン ≈ 2文字）
+ * コードは記号・キーワード・特殊文字が多く、通常のテキストより多くのトークンを消費する
+ */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 2);
+}
+
+/**
+ * テキストをトークン上限に収まるようにトランケート
+ */
+function truncateToTokenLimit(text: string, maxTokens: number = MAX_TOKENS): string {
+  const estimatedTokens = estimateTokens(text);
+  if (estimatedTokens <= maxTokens) {
+    return text;
+  }
+
+  // 非常に保守的な概算で必要な文字数を計算（1トークン ≈ 2文字）
+  const maxChars = maxTokens * 2;
+  const truncated = text.slice(0, maxChars);
+
+  console.log(`[Embeddings] Truncated text from ~${estimatedTokens} to ~${maxTokens} tokens`);
+  return truncated + "\n... (truncated)";
+}
 
 /**
  * テキストからEmbeddingを生成
@@ -24,9 +50,12 @@ const EMBEDDING_DIMENSIONS = 1536; // text-embedding-3-small のデフォルト�
 export async function generateEmbedding(text: string): Promise<number[]> {
   const client = getOpenAI();
 
+  // トークン上限を超える場合はトランケート
+  const truncatedText = truncateToTokenLimit(text);
+
   const response = await client.embeddings.create({
     model: EMBEDDING_MODEL,
-    input: text,
+    input: truncatedText,
     dimensions: EMBEDDING_DIMENSIONS,
   });
 
@@ -41,13 +70,16 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
 
   const client = getOpenAI();
 
+  // 各テキストをトークン上限に収まるようにトランケート
+  const truncatedTexts = texts.map((text) => truncateToTokenLimit(text));
+
   // OpenAIは最大2048件まで一度にリクエスト可能（ただしトークン制限あり）
-  // 安全のため500件ずつ処理
-  const BATCH_SIZE = 500;
+  // 安全のため100件ずつ処理（大きなテキストが含まれる可能性があるため）
+  const BATCH_SIZE = 100;
   const allEmbeddings: number[][] = [];
 
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < truncatedTexts.length; i += BATCH_SIZE) {
+    const batch = truncatedTexts.slice(i, i + BATCH_SIZE);
 
     const response = await client.embeddings.create({
       model: EMBEDDING_MODEL,
@@ -62,7 +94,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
     allEmbeddings.push(...embeddings);
 
     console.log(
-      `[Embeddings] Generated ${i + embeddings.length}/${texts.length} embeddings`
+      `[Embeddings] Generated ${i + embeddings.length}/${truncatedTexts.length} embeddings`
     );
   }
 

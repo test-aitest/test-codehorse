@@ -93,8 +93,17 @@ export async function deleteNamespace(owner: string, repo: string): Promise<void
   const index = getIndex();
   const namespace = getNamespace(owner, repo);
 
-  await index.namespace(namespace).deleteAll();
-  console.log(`[Pinecone] Deleted all vectors in namespace: ${namespace}`);
+  try {
+    await index.namespace(namespace).deleteAll();
+    console.log(`[Pinecone] Deleted all vectors in namespace: ${namespace}`);
+  } catch (error) {
+    // Namespace doesn't exist yet (404 error) - this is fine for new repositories
+    if (error instanceof Error && error.message.includes("404")) {
+      console.log(`[Pinecone] Namespace ${namespace} doesn't exist yet, skipping delete`);
+      return;
+    }
+    throw error;
+  }
 }
 
 /**
@@ -108,11 +117,20 @@ export async function deleteByFilePath(
   const index = getIndex();
   const namespace = getNamespace(owner, repo);
 
-  // メタデータフィルターで削除
-  await index.namespace(namespace).deleteMany({
-    filePath: { $eq: filePath },
-  });
-  console.log(`[Pinecone] Deleted vectors for file: ${filePath}`);
+  try {
+    // メタデータフィルターで削除
+    await index.namespace(namespace).deleteMany({
+      filePath: { $eq: filePath },
+    });
+    console.log(`[Pinecone] Deleted vectors for file: ${filePath}`);
+  } catch (error) {
+    // Namespace doesn't exist yet (404 error) - this is fine for new files
+    if (error instanceof Error && error.message.includes("404")) {
+      console.log(`[Pinecone] Namespace doesn't exist yet, skipping delete for: ${filePath}`);
+      return;
+    }
+    throw error;
+  }
 }
 
 /**

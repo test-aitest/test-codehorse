@@ -230,6 +230,31 @@ export async function addRepository(installationId: number, fullName: string) {
 }
 
 /**
+ * リポジトリのステータスを取得（ポーリング用）
+ */
+export async function getRepositoryStatus(repositoryId: string) {
+  const repository = await prisma.repository.findUnique({
+    where: { id: repositoryId },
+    select: {
+      indexStatus: true,
+      lastIndexedAt: true,
+    },
+  });
+
+  if (!repository) {
+    return { success: false, error: "Repository not found" };
+  }
+
+  return {
+    success: true,
+    data: {
+      indexStatus: repository.indexStatus,
+      lastIndexedAt: repository.lastIndexedAt,
+    },
+  };
+}
+
+/**
  * 既存リポジトリのinstallationIdを更新
  */
 export async function updateRepositoryInstallation(

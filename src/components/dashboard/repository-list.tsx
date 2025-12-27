@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { ja } from "date-fns/locale";
@@ -33,6 +33,7 @@ import {
 import {
   reindexRepository,
   disconnectRepository,
+  getRepositoryStatus,
 } from "@/app/(dashboard)/dashboard/repositories/actions";
 
 interface Repository {
@@ -91,13 +92,34 @@ function RepositoryCard({ repo }: { repo: Repository }) {
   const [isReindexing, startReindexTransition] = useTransition();
   const [isDisconnecting, startDisconnectTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [currentStatus, setCurrentStatus] = useState(repo.indexStatus);
+  const [lastIndexedAt, setLastIndexedAt] = useState(repo.lastIndexedAt);
+
+  // Poll for status updates when indexing
+  const pollStatus = useCallback(async () => {
+    const result = await getRepositoryStatus(repo.id);
+    if (result.success && result.data) {
+      setCurrentStatus(result.data.indexStatus);
+      setLastIndexedAt(result.data.lastIndexedAt);
+    }
+  }, [repo.id]);
+
+  useEffect(() => {
+    // Only poll when status is INDEXING
+    if (currentStatus !== "INDEXING") return;
+
+    const interval = setInterval(pollStatus, 3000); // Poll every 3 seconds
+    return () => clearInterval(interval);
+  }, [currentStatus, pollStatus]);
 
   const handleReindex = () => {
     setError(null);
+    setCurrentStatus("INDEXING"); // Optimistically update status
     startReindexTransition(async () => {
       const result = await reindexRepository(repo.id);
       if (!result.success) {
         setError(result.error || "Failed to start reindex");
+        setCurrentStatus(repo.indexStatus); // Revert on error
       }
     });
   };
@@ -112,7 +134,7 @@ function RepositoryCard({ repo }: { repo: Repository }) {
     });
   };
 
-  const isIndexing = repo.indexStatus === "INDEXING";
+  const isIndexing = currentStatus === "INDEXING";
   const hasValidInstallation = repo.installationId > 0;
 
   return (
@@ -130,7 +152,7 @@ function RepositoryCard({ repo }: { repo: Repository }) {
                 >
                   {repo.fullName}
                 </Link>
-                {getIndexStatusBadge(repo.indexStatus)}
+                {getIndexStatusBadge(currentStatus)}
                 {!hasValidInstallation && (
                   <Badge variant="destructive" className="gap-1">
                     <AlertTriangle className="h-3 w-3" />
@@ -140,10 +162,10 @@ function RepositoryCard({ repo }: { repo: Repository }) {
               </div>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <span>{repo._count.pullRequests} PRs reviewed</span>
-                {repo.lastIndexedAt && (
+                {lastIndexedAt && (
                   <span>
                     Last indexed:{" "}
-                    {formatDistanceToNow(new Date(repo.lastIndexedAt), {
+                    {formatDistanceToNow(new Date(lastIndexedAt), {
                       addSuffix: true,
                       locale: ja,
                     })}
