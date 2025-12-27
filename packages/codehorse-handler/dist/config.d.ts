@@ -17,5 +17,13 @@ export declare function getAllRepoMappings(): Record<string, string>;
  * Remove a repository mapping
  */
 export declare function removeRepoPath(fullName: string): void;
+/**
+ * Set Google credentials by copying the file to config directory
+ */
+export declare function setGoogleCredentials(sourcePath: string): void;
+/**
+ * Get Google credentials file path
+ */
+export declare function getGoogleCredentialsPath(): string;
 export { config };
 //# sourceMappingURL=config.d.ts.map

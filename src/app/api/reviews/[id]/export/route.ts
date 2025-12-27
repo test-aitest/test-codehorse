@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyAndConsumeToken, hashToken } from "@/lib/review-token";
+import { getPullRequest } from "@/lib/github/client";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -54,7 +55,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       include: {
         pullRequest: {
           include: {
-            repository: true,
+            repository: {
+              select: {
+                id: true,
+                fullName: true,
+                owner: true,
+                name: true,
+                htmlUrl: true,
+                installationId: true,
+              },
+            },
           },
         },
         comments: {
@@ -70,6 +80,22 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // Fetch PR description from GitHub
+    let prDescription: string | null = null;
+    try {
+      const prData = await getPullRequest(
+        review.pullRequest.repository.installationId,
+        review.pullRequest.repository.owner,
+        review.pullRequest.repository.name,
+        review.pullRequest.number
+      );
+      prDescription = prData.body || null;
+    } catch (error) {
+      console.warn(
+        `[Review Export] Could not fetch PR description: ${(error as Error).message}`
+      );
+    }
+
     // Format response
     const response = {
       success: true,
@@ -78,6 +104,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           id: review.id,
           prNumber: review.pullRequest.number,
           prTitle: review.pullRequest.title,
+          prDescription,
           commitSha: review.commitSha,
           summary: review.summary,
           walkthrough: review.walkthrough

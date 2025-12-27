@@ -13,14 +13,28 @@ export function parseDiff(rawDiff: string): ParsedDiff {
   const parsedFiles: ParsedFile[] = files.map((file) => {
     const parsedHunks: ParsedHunk[] = file.hunks.map((hunk) => {
       let diffPosition = 0;
+      // gitdiff-parserはinsert/deleteの行番号をundefinedで返すことがあるため
+      // hunkのnewStart/oldStartから自分で計算する
+      let currentNewLine = hunk.newStart;
+      let currentOldLine = hunk.oldStart;
+
       const changes: ParsedChange[] = hunk.changes.map((change) => {
         diffPosition++;
 
         let lineNumber: number;
         if (change.type === "delete") {
-          lineNumber = (change as any).oldLineNumber || 0;
+          // 削除行：旧ファイルの行番号を使用
+          lineNumber = (change as any).oldLineNumber || currentOldLine;
+          currentOldLine++;
+        } else if (change.type === "insert") {
+          // 追加行：新ファイルの行番号を使用
+          lineNumber = (change as any).newLineNumber || currentNewLine;
+          currentNewLine++;
         } else {
-          lineNumber = (change as any).newLineNumber || 0;
+          // normal（変更なし）：両方の行番号をインクリメント
+          lineNumber = (change as any).newLineNumber || currentNewLine;
+          currentNewLine++;
+          currentOldLine++;
         }
 
         return {

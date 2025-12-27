@@ -1,4 +1,5 @@
 import type { ReviewData, ReviewComment } from "./types.js";
+import type { TestCase } from "./sheets-client.js";
 
 /**
  * Group comments by file path
@@ -36,9 +37,30 @@ function getSeverityOrder(severity: string): number {
 }
 
 /**
- * Build a prompt for Claude Code from review data
+ * Format test cases as a markdown table for the prompt
  */
-export function buildPrompt(data: ReviewData): string {
+function formatTestCasesTable(testCases: TestCase[]): string {
+  if (testCases.length === 0) {
+    return "*テストケースはまだ登録されていません。*";
+  }
+
+  let table = "| ID | テスト名 | 説明 | 期待結果 | ステータス | 優先度 | 関連コード |\n";
+  table += "|-----|---------|------|---------|-----------|--------|------------|\n";
+
+  for (const tc of testCases) {
+    const relatedCode = tc.relatedCode || "-";
+    table += `| ${tc.id} | ${tc.name} | ${tc.description} | ${tc.expectedResult} | ${tc.status} | ${tc.priority} | ${relatedCode} |\n`;
+  }
+
+  return table;
+}
+
+/**
+ * Build a prompt for Claude Code from review data
+ * @param data Review data with comments
+ * @param testCases Optional test cases from Google Sheets
+ */
+export function buildPrompt(data: ReviewData, testCases?: TestCase[]): string {
   const { review, comments } = data;
 
   // Sort comments by severity
@@ -86,6 +108,57 @@ The following issues were identified during code review. Please apply fixes for 
     }
   }
 
+  // Add test case section if test cases are provided
+  if (testCases && testCases.length >= 0) {
+    prompt += `
+## 現在のテストケース
+
+以下はGoogle Sheetsのテスト概要設計書に登録されているテストケースです：
+
+${formatTestCasesTable(testCases)}
+
+## テストケース更新指示
+
+コード修正を行った後、テストケースの追加・修正が必要な場合は、以下のJSON形式で出力してください。
+テストケースの更新が不要な場合は、このセクションを出力する必要はありません。
+
+\`\`\`json:test-updates
+[
+  {
+    "action": "add",
+    "testCase": {
+      "id": "TC00X",
+      "name": "テスト名",
+      "description": "テストの説明",
+      "expectedResult": "期待される結果",
+      "status": "Pending",
+      "priority": "Medium",
+      "relatedCode": "path/to/modified/file.ts"
+    }
+  },
+  {
+    "action": "update",
+    "testCase": {
+      "id": "TC001",
+      "name": "更新後のテスト名",
+      "description": "更新後の説明",
+      "expectedResult": "更新後の期待結果",
+      "status": "Pending",
+      "priority": "High",
+      "relatedCode": "path/to/file.ts"
+    }
+  }
+]
+\`\`\`
+
+**action の種類:**
+- \`add\`: 新しいテストケースを追加
+- \`update\`: 既存のテストケースを更新（ID で特定）
+- \`delete\`: テストケースを削除（ID のみ必要）
+
+`;
+  }
+
   prompt += `
 ## Instructions
 
@@ -96,6 +169,7 @@ The following issues were identified during code review. Please apply fixes for 
    - If no suggestion is provided, implement an appropriate fix based on the issue description
 3. After applying all fixes, verify the code still compiles/runs
 4. Provide a brief summary of what changes were made
+${testCases ? "5. If test cases need to be added or updated, output the JSON in the format specified above" : ""}
 
 Please proceed with applying these fixes.
 `;

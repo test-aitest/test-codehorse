@@ -126,6 +126,7 @@ export async function getPullRequestDiffById(
 
 /**
  * PRのDiffを取得（Unified Diff形式）- Octokit版
+ * 300ファイル以上の大きなPRの場合は listFiles API を使用してpatchを結合
  */
 export async function getPullRequestDiff(
   octokit: Octokit,
@@ -134,14 +135,79 @@ export async function getPullRequestDiff(
   prNumber: number
 ): Promise<string> {
   return rateLimitedRequest(async () => {
-    const response = await octokit.rest.pulls.get({
+    try {
+      const response = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: prNumber,
+        mediaType: { format: "diff" },
+      });
+      return response.data as unknown as string;
+    } catch (error: any) {
+      // 300ファイル以上の場合、listFiles APIにフォールバック
+      if (error.message?.includes("too_large") || error.message?.includes("exceeded the maximum")) {
+        console.log("[GitHub] Diff too large, falling back to listFiles API with pagination");
+        return getPullRequestDiffFromFiles(octokit, owner, repo, prNumber);
+      }
+      throw error;
+    }
+  });
+}
+
+/**
+ * listFiles APIを使用してDiffを構築（大きなPR用）
+ */
+async function getPullRequestDiffFromFiles(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number
+): Promise<string> {
+  const allFiles: Array<{
+    filename: string;
+    status: string;
+    patch?: string;
+    additions: number;
+    deletions: number;
+  }> = [];
+
+  // ページネーションで全ファイルを取得
+  let page = 1;
+  const perPage = 100;
+
+  while (true) {
+    const response = await octokit.rest.pulls.listFiles({
       owner,
       repo,
       pull_number: prNumber,
-      mediaType: { format: "diff" },
+      per_page: perPage,
+      page,
     });
-    return response.data as unknown as string;
-  });
+
+    allFiles.push(...response.data);
+
+    if (response.data.length < perPage) {
+      break;
+    }
+    page++;
+  }
+
+  console.log(`[GitHub] Retrieved ${allFiles.length} files via listFiles API`);
+
+  // Unified Diff形式で結合
+  const diffParts: string[] = [];
+
+  for (const file of allFiles) {
+    if (file.patch) {
+      // 標準的なUnified Diff形式のヘッダーを追加
+      const header = `diff --git a/${file.filename} b/${file.filename}
+--- a/${file.filename}
++++ b/${file.filename}`;
+      diffParts.push(`${header}\n${file.patch}`);
+    }
+  }
+
+  return diffParts.join("\n\n");
 }
 
 /**

@@ -27,6 +27,7 @@ export interface ReviewData {
       name: string;
       htmlUrl: string;
     };
+    prDescription?: string; // PR description from GitHub (for extracting Google Sheets URL)
   };
   comments: ReviewComment[];
 }
