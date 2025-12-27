@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { existsSync, writeFileSync, unlinkSync, chmodSync } from "fs";
+import { existsSync, writeFileSync, readFileSync, unlinkSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { randomBytes } from "crypto";
@@ -7,34 +7,45 @@ import { randomBytes } from "crypto";
 /**
  * Invoke Claude Code CLI with the given prompt
  * Uses expect to start Claude interactively, send the prompt, and hand over control
+ *
+ * @returns Claude Code output captured via log file for test case parsing
  */
 export async function invokeClaudeCode(
   prompt: string,
   repoPath: string
-): Promise<void> {
+): Promise<string> {
   // Verify repo path exists
   if (!existsSync(repoPath)) {
     throw new Error(`Repository path does not exist: ${repoPath}`);
   }
 
+  // Create temp files
+  const fileId = randomBytes(8).toString("hex");
+  const promptFile = join(tmpdir(), `codehorse-prompt-${fileId}.txt`);
+  const logFile = join(tmpdir(), `codehorse-output-${fileId}.log`);
+  const expectFile = join(tmpdir(), `codehorse-expect-${fileId}.exp`);
+
   // Write prompt to a temp file (to avoid escaping issues in expect script)
-  const promptFile = join(tmpdir(), `codehorse-prompt-${randomBytes(8).toString("hex")}.txt`);
   writeFileSync(promptFile, prompt, "utf-8");
 
   // Create an expect script that:
-  // 1. Starts Claude Code
+  // 1. Starts Claude Code with logging enabled
   // 2. Waits for the prompt input
   // 3. Sends the prompt from the file
-  // 4. Hands over control to the user for interactive permissions
-  const expectFile = join(tmpdir(), `codehorse-expect-${randomBytes(8).toString("hex")}.exp`);
+  // 4. Logs all output to a file for later parsing
+  // 5. Hands over control to the user for interactive permissions
   const expectContent = `#!/usr/bin/expect -f
 set timeout -1
 set prompt_file "${promptFile}"
+set log_file_path "${logFile}"
 
 # Read prompt from file
 set fp [open $prompt_file r]
 set prompt [read $fp]
 close $fp
+
+# Enable logging to capture Claude Code output
+log_file -noappend $log_file_path
 
 # Start Claude Code
 spawn claude
@@ -66,16 +77,28 @@ interact
     expectProcess.on("error", (error) => {
       try { unlinkSync(promptFile); } catch {}
       try { unlinkSync(expectFile); } catch {}
+      try { unlinkSync(logFile); } catch {}
       reject(error);
     });
 
     expectProcess.on("close", (code) => {
+      // Read captured output from log file
+      let output = "";
+      try {
+        if (existsSync(logFile)) {
+          output = readFileSync(logFile, "utf-8");
+        }
+      } catch (err) {
+        console.warn(`[Claude Invoker] Could not read log file: ${(err as Error).message}`);
+      }
+
       // Clean up temp files
       try { unlinkSync(promptFile); } catch {}
       try { unlinkSync(expectFile); } catch {}
+      try { unlinkSync(logFile); } catch {}
 
       if (code === 0) {
-        resolve();
+        resolve(output);
       } else {
         reject(new Error(`Claude Code exited with code ${code}`));
       }

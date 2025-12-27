@@ -11,8 +11,16 @@ import { homedir } from "os";
 import { fetchReview } from "./api-client.js";
 import { buildPrompt } from "./prompt-builder.js";
 import { invokeClaudeCode, isClaudeCodeInstalled } from "./claude-invoker.js";
-import { getRepoPath, setRepoPath, getAllRepoMappings } from "./config.js";
+import { getRepoPath, setRepoPath, getAllRepoMappings, setGoogleCredentials } from "./config.js";
+import { parseGoogleSheetsUrl, extractSheetsUrlFromPRDescription } from "./sheets-parser.js";
+import { fetchTestCases, applyTestCaseUpdates } from "./sheets-client.js";
+import { hasGoogleCredentials, getCredentialsFilePath } from "./google-auth.js";
+import { parseTestUpdatesFromClaudeOutput } from "./test-case-parser.js";
 import type { ApplyParams } from "./types.js";
+import type { TestCase } from "./sheets-client.js";
+
+// テストケースシートの名前
+const TEST_CASE_SHEET_NAME = "テストケース";
 
 /**
  * Parse URL scheme parameters
@@ -157,9 +165,39 @@ async function applyReview(params: ApplyParams): Promise<void> {
 
     spinner.text = `Using repository at: ${repoPath}`;
 
-    // Build prompt
+    // Extract Google Sheets URL from PR description
+    let sheetsInfo = null;
+    let testCases: TestCase[] = [];
+
+    if (reviewData.review.prDescription) {
+      const sheetsUrl = extractSheetsUrlFromPRDescription(reviewData.review.prDescription);
+      if (sheetsUrl) {
+        sheetsInfo = parseGoogleSheetsUrl(sheetsUrl);
+        if (sheetsInfo) {
+          spinner.text = "Found Google Sheets URL in PR description";
+
+          // Check if Google credentials are configured
+          if (hasGoogleCredentials()) {
+            try {
+              spinner.text = "Fetching test cases from Google Sheets...";
+              testCases = await fetchTestCases(sheetsInfo, TEST_CASE_SHEET_NAME);
+              spinner.text = `Found ${testCases.length} existing test cases`;
+            } catch (error) {
+              console.log(chalk.yellow(`\nWarning: Could not fetch test cases: ${(error as Error).message}`));
+              console.log(chalk.yellow("Continuing without test case integration.\n"));
+            }
+          } else {
+            console.log(chalk.yellow("\nGoogle credentials not configured."));
+            console.log(chalk.yellow("Run: codehorse-handler config set-google-auth <path/to/credentials.json>"));
+            console.log(chalk.yellow("Continuing without test case integration.\n"));
+          }
+        }
+      }
+    }
+
+    // Build prompt (with test cases if available)
     spinner.text = "Building prompt for Claude Code...";
-    const prompt = buildPrompt(reviewData);
+    const prompt = buildPrompt(reviewData, testCases.length > 0 ? testCases : undefined);
 
     // Invoke Claude Code
     spinner.succeed("Invoking Claude Code to apply fixes...\n");
@@ -167,9 +205,29 @@ async function applyReview(params: ApplyParams): Promise<void> {
     console.log(chalk.cyan("Claude Code Output:"));
     console.log(chalk.cyan("━".repeat(60)) + "\n");
 
-    await invokeClaudeCode(prompt, repoPath);
+    const claudeOutput = await invokeClaudeCode(prompt, repoPath);
 
     console.log("\n" + chalk.cyan("━".repeat(60)));
+
+    // Parse and apply test case updates if Google Sheets is configured
+    if (sheetsInfo && hasGoogleCredentials() && claudeOutput) {
+      const spinner2 = ora("Checking for test case updates...").start();
+      try {
+        const testUpdates = parseTestUpdatesFromClaudeOutput(claudeOutput);
+        if (testUpdates.length > 0) {
+          spinner2.text = `Applying ${testUpdates.length} test case updates to Google Sheets...`;
+          const result = await applyTestCaseUpdates(sheetsInfo, TEST_CASE_SHEET_NAME, testUpdates);
+          spinner2.succeed(
+            `Test cases updated: ${result.added} added, ${result.updated} updated, ${result.deleted} deleted`
+          );
+        } else {
+          spinner2.succeed("No test case updates needed.");
+        }
+      } catch (error) {
+        spinner2.fail(`Failed to update test cases: ${(error as Error).message}`);
+      }
+    }
+
     console.log(chalk.green("\n✅ Review apply completed!"));
   } catch (error) {
     spinner.fail(`Error: ${(error as Error).message}`);
@@ -230,6 +288,41 @@ configCmd
     console.log(chalk.bold("Repository Mappings:"));
     for (const [fullName, localPath] of Object.entries(mappings)) {
       console.log(`  ${fullName} -> ${localPath}`);
+    }
+  });
+
+configCmd
+  .command("set-google-auth <credentialsPath>")
+  .description("Set Google Service Account credentials for Sheets API access")
+  .action((credentialsPath: string) => {
+    const absolutePath = resolve(credentialsPath);
+    if (!existsSync(absolutePath)) {
+      console.error(chalk.red(`Credentials file not found: ${absolutePath}`));
+      process.exit(1);
+    }
+
+    try {
+      setGoogleCredentials(absolutePath);
+      console.log(chalk.green(`Google credentials configured successfully.`));
+      console.log(chalk.gray(`Credentials copied to: ${getCredentialsFilePath()}`));
+      console.log(chalk.yellow("\nRemember to share your Google Sheets with the service account email."));
+    } catch (error) {
+      console.error(chalk.red(`Failed to set credentials: ${(error as Error).message}`));
+      process.exit(1);
+    }
+  });
+
+configCmd
+  .command("google-auth-status")
+  .description("Check Google authentication status")
+  .action(() => {
+    if (hasGoogleCredentials()) {
+      console.log(chalk.green("✅ Google credentials are configured."));
+      console.log(chalk.gray(`Credentials file: ${getCredentialsFilePath()}`));
+    } else {
+      console.log(chalk.yellow("❌ Google credentials are not configured."));
+      console.log(chalk.gray("\nTo configure, run:"));
+      console.log(chalk.cyan("  codehorse-handler config set-google-auth <path/to/credentials.json>"));
     }
   });
 
