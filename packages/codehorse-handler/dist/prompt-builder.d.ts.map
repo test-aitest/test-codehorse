@@ -1,1 +1,1 @@
-{"version":3,"file":"prompt-builder.d.ts","sourceRoot":"","sources":["../src/prompt-builder.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,UAAU,EAAiB,MAAM,YAAY,CAAC;AAqC5D;;GAEG;AACH,wBAAgB,WAAW,CAAC,IAAI,EAAE,UAAU,GAAG,MAAM,CA+DpD"}
+{"version":3,"file":"prompt-builder.d.ts","sourceRoot":"","sources":["../src/prompt-builder.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,UAAU,EAAiB,MAAM,YAAY,CAAC;AAC5D,OAAO,KAAK,EAAE,QAAQ,EAAE,MAAM,oBAAoB,CAAC;AAwDnD;;;;GAIG;AACH,wBAAgB,WAAW,CAAC,IAAI,EAAE,UAAU,EAAE,SAAS,CAAC,EAAE,QAAQ,EAAE,GAAG,MAAM,CAmH5E"}

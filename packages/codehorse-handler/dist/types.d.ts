@@ -26,6 +26,7 @@ export interface ReviewData {
             name: string;
             htmlUrl: string;
         };
+        prDescription?: string;
     };
     comments: ReviewComment[];
 }
