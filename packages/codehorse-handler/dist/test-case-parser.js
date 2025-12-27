@@ -74,6 +74,64 @@ function parseTestUpdatesFromClaudeOutput(output) {
             // 無視（他のJSONブロックかもしれない）
         }
     }
+    if (updates.length > 0) {
+        return updates;
+    }
+    // パターン3: バッククォートなしのJSON配列
+    // Claude Codeがバッククォートなしで出力した場合に対応
+    // 入れ子のオブジェクトを正しく処理するため、開始位置を見つけて段階的に解析
+    const jsonStartPattern = /\[\s*\{\s*"action"\s*:\s*"(?:add|update|delete)"/g;
+    while ((match = jsonStartPattern.exec(output)) !== null) {
+        const startIndex = match.index;
+        // 開始位置から段階的に長さを増やしながらJSON.parseを試みる
+        let bracketCount = 0;
+        let inString = false;
+        let escapeNext = false;
+        for (let i = startIndex; i < output.length; i++) {
+            const char = output[i];
+            if (escapeNext) {
+                escapeNext = false;
+                continue;
+            }
+            if (char === "\\") {
+                escapeNext = true;
+                continue;
+            }
+            if (char === '"') {
+                inString = !inString;
+                continue;
+            }
+            if (inString)
+                continue;
+            if (char === "[" || char === "{") {
+                bracketCount++;
+            }
+            else if (char === "]" || char === "}") {
+                bracketCount--;
+                if (bracketCount === 0) {
+                    // 配列が閉じた
+                    const jsonCandidate = output.slice(startIndex, i + 1);
+                    try {
+                        const parsed = JSON.parse(jsonCandidate);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            if (isValidTestCaseUpdate(parsed[0])) {
+                                for (const item of parsed) {
+                                    if (isValidTestCaseUpdate(item)) {
+                                        updates.push(item);
+                                    }
+                                }
+                                return updates; // 見つかったらすぐに返す
+                            }
+                        }
+                    }
+                    catch {
+                        // パースに失敗した場合は次のマッチを試す
+                    }
+                    break; // このマッチは終了、次を探す
+                }
+            }
+        }
+    }
     return updates;
 }
 /**
