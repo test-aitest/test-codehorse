@@ -193,6 +193,23 @@ async function handleIssueComment(payload: IssueCommentPayload) {
     body: comment.body.substring(0, 100),
   });
 
+  // 明示的なフィードバックコマンドをチェック
+  if (isExplicitFeedbackCommand(comment.body)) {
+    await inngest.send({
+      name: "feedback/explicit.received",
+      data: {
+        installationId: installation.id,
+        owner: repository.owner.login,
+        repo: repository.name,
+        prNumber: issue.number,
+        commentBody: comment.body,
+        userId: comment.user.login,
+      },
+    });
+    console.log("[Webhook] Sent explicit feedback event to Inngest");
+    return; // フィードバックコマンドの場合はチャットボット応答をスキップ
+  }
+
   // チャットボット応答をトリガー
   await inngest.send({
     name: "github/comment.created",
@@ -232,6 +249,24 @@ async function handlePullRequestReviewComment(
     inReplyTo: comment.in_reply_to_id,
   });
 
+  // 明示的なフィードバックコマンドをチェック
+  if (isExplicitFeedbackCommand(comment.body)) {
+    await inngest.send({
+      name: "feedback/explicit.received",
+      data: {
+        installationId: installation.id,
+        owner: repository.owner.login,
+        repo: repository.name,
+        prNumber: pull_request.number,
+        commentBody: comment.body,
+        contextCommentId: comment.in_reply_to_id,
+        userId: comment.user.login,
+      },
+    });
+    console.log("[Webhook] Sent explicit feedback event to Inngest");
+    return;
+  }
+
   // チャットボット応答をトリガー（レビューコメントへの返信）
   await inngest.send({
     name: "github/comment.created",
@@ -247,6 +282,27 @@ async function handlePullRequestReviewComment(
     },
   });
   console.log("[Webhook] Sent review comment event to Inngest for chatbot response");
+}
+
+// =====================================================
+// Helper Functions
+// =====================================================
+
+/**
+ * 明示的なフィードバックコマンドかどうかをチェック
+ * @codehorse prefer X over Y
+ * @codehorse add rule: X
+ * @codehorse always use X
+ * @codehorse never use X
+ */
+function isExplicitFeedbackCommand(body: string): boolean {
+  const patterns = [
+    /@codehorse\s+prefer\s+.+\s+over\s+/i,
+    /@codehorse\s+add\s+rule:/i,
+    /@codehorse\s+always\s+use\s+/i,
+    /@codehorse\s+never\s+use\s+/i,
+  ];
+  return patterns.some((pattern) => pattern.test(body));
 }
 
 async function handleInstallation(payload: InstallationPayload) {

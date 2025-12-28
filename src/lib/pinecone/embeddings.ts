@@ -161,3 +161,105 @@ export function formatQueryForEmbedding(params: {
 export function getEmbeddingDimensions(): number {
   return EMBEDDING_DIMENSIONS;
 }
+
+// ========================================
+// Adaptive Learning Memory 用フォーマッタ
+// ========================================
+
+/**
+ * 学習ルール用のテキストを整形
+ * - ルールの意味内容を正確にベクトル化するためのフォーマット
+ */
+export function formatRuleForEmbedding(params: {
+  ruleText: string;
+  ruleType: string;
+  language?: string;
+  category?: string;
+}): string {
+  const { ruleText, ruleType, language, category } = params;
+
+  const parts = [`Rule: ${ruleText}`, `Type: ${ruleType}`];
+
+  if (language) {
+    parts.push(`Language: ${language}`);
+  }
+
+  if (category) {
+    parts.push(`Category: ${category}`);
+  }
+
+  return parts.join("\n");
+}
+
+/**
+ * 仕様書チャンク用のテキストを整形
+ * - OpenAPIやMarkdownの内容を検索しやすくフォーマット
+ */
+export function formatSpecChunkForEmbedding(params: {
+  content: string;
+  documentType: string;
+  section?: string;
+  filePath: string;
+}): string {
+  const { content, documentType, section, filePath } = params;
+
+  const parts = [`Type: ${documentType}`, `File: ${filePath}`];
+
+  if (section) {
+    parts.push(`Section: ${section}`);
+  }
+
+  parts.push("", "Content:", content);
+
+  return parts.join("\n");
+}
+
+/**
+ * ルール検索クエリ用のテキストを整形
+ * - コードの変更内容からルールを検索するためのクエリフォーマット
+ */
+export function formatRuleQueryForEmbedding(params: {
+  codeContext: string;
+  language?: string;
+  category?: string;
+}): string {
+  const { codeContext, language, category } = params;
+
+  const parts = [
+    "Find coding rules and preferences relevant to this code:",
+    "",
+    codeContext,
+  ];
+
+  if (language) {
+    parts.push(`Language: ${language}`);
+  }
+
+  if (category) {
+    parts.push(`Category: ${category}`);
+  }
+
+  return parts.join("\n");
+}
+
+/**
+ * 仕様書検索クエリ用のテキストを整形
+ */
+export function formatSpecQueryForEmbedding(params: {
+  context: string;
+  documentType?: string;
+}): string {
+  const { context, documentType } = params;
+
+  const parts = [
+    "Find specification documentation relevant to:",
+    "",
+    context,
+  ];
+
+  if (documentType) {
+    parts.push(`Document Type: ${documentType}`);
+  }
+
+  return parts.join("\n");
+}

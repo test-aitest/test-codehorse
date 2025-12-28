@@ -156,3 +156,40 @@ export function buildSimpleContext(results: SearchResult[]): string {
 
   return lines.join("\n");
 }
+
+// ========================================
+// Enhanced Context with Learning Rules
+// ========================================
+
+/**
+ * 拡張コンテキストの構築
+ * コードコンテキストとルールコンテキストを統合
+ */
+export function buildEnhancedContext(params: {
+  codeContext?: string;
+  rulesContext?: string;
+  specsContext?: string;
+}): string {
+  const sections: string[] = [];
+
+  // ルールコンテキストを最初に配置（重要度が高い）
+  if (params.rulesContext && params.rulesContext.trim()) {
+    sections.push(params.rulesContext);
+  }
+
+  // 仕様書コンテキスト
+  if (params.specsContext && params.specsContext.trim()) {
+    sections.push(params.specsContext);
+  }
+
+  // コードコンテキスト
+  if (params.codeContext && params.codeContext.trim()) {
+    sections.push(params.codeContext);
+  }
+
+  if (sections.length === 0) {
+    return "";
+  }
+
+  return sections.join("\n\n---\n\n");
+}
