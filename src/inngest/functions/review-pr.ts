@@ -363,7 +363,6 @@ export const reviewPR = inngest.createFunction(
       const githubReview = formatForGitHubReview(aiReview);
 
       // コメントの行番号をdiff positionに変換
-      // GitHub APIの `position` パラメータを使用することで "Line could not be resolved" エラーを回避
       const positionBasedComments = convertCommentsToPositionBased(
         githubReview.comments,
         parsedData.files
@@ -396,6 +395,7 @@ export const reviewPR = inngest.createFunction(
           message: err.message,
           status: err.status,
           response: err.response?.data,
+          comments: positionBasedComments,
         });
         throw error;
       }
