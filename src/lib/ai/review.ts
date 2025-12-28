@@ -4,6 +4,7 @@ import { ReviewResultSchema, type ReviewResult } from "./schemas";
 import { REVIEW_SYSTEM_PROMPT, buildReviewPrompt, buildSummaryComment, formatInlineComment } from "./prompts";
 import type { ParsedFile } from "../diff/types";
 import { countTokens, truncateToTokenLimit } from "../tokenizer";
+import type { AdaptiveContext } from "./memory/types";
 
 // レビュー生成の最大入力トークン数
 const MAX_INPUT_TOKENS = 100000;
@@ -14,6 +15,7 @@ export interface GenerateReviewParams {
   files: ParsedFile[];
   diffContent: string;
   ragContext?: string;
+  adaptiveContext?: AdaptiveContext;
 }
 
 export interface GeneratedReview {
@@ -72,7 +74,7 @@ const JSON_OUTPUT_INSTRUCTION = `
  * AIレビューを生成
  */
 export async function generateReview(params: GenerateReviewParams): Promise<GeneratedReview> {
-  const { prTitle, prBody, files, diffContent, ragContext } = params;
+  const { prTitle, prBody, files, diffContent, ragContext, adaptiveContext } = params;
 
   // トークン数を計算し、必要に応じて切り詰め
   let truncatedDiff = diffContent;
@@ -92,6 +94,7 @@ export async function generateReview(params: GenerateReviewParams): Promise<Gene
     files,
     diffContent: truncatedDiff,
     ragContext,
+    adaptiveContext,
   }) + JSON_OUTPUT_INSTRUCTION;
 
   const totalTokens = countTokens(REVIEW_SYSTEM_PROMPT + prompt);

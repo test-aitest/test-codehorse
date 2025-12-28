@@ -3,6 +3,8 @@ import {
   formatInlineCommentWithSuggestion,
   isValidSuggestion,
 } from "../github/suggestion-formatter";
+import type { AdaptiveContext } from "./memory/types";
+import { buildAdaptivePromptSection, hasValidContext } from "./memory/context-builder";
 
 // システムプロンプト
 export const REVIEW_SYSTEM_PROMPT = `あなたは経験豊富なシニアソフトウェアエンジニアで、コードレビューのエキスパートです。
@@ -33,8 +35,9 @@ export function buildReviewPrompt(params: {
   files: ParsedFile[];
   diffContent: string;
   ragContext?: string;
+  adaptiveContext?: AdaptiveContext;
 }): string {
-  const { prTitle, prBody, files, diffContent, ragContext } = params;
+  const { prTitle, prBody, files, diffContent, ragContext, adaptiveContext } = params;
 
   const fileList = files
     .map((f) => `- ${f.newPath} (${f.type}: +${f.additions}/-${f.deletions})`)
@@ -65,6 +68,13 @@ ${diffContent}
 以下は変更に関連する既存コードの抜粋です。レビュー時の参考にしてください。
 
 ${ragContext}
+`;
+  }
+
+  // 適応コンテキストを追加
+  if (adaptiveContext && hasValidContext(adaptiveContext)) {
+    prompt += `
+${buildAdaptivePromptSection(adaptiveContext)}
 `;
   }
 
