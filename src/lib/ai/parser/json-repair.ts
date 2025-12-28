@@ -139,7 +139,7 @@ function removeTrailingCommas(input: string): string {
 function fixUnescapedQuotes(input: string): string {
   // 文字列値内の未エスケープの引用符を検出して修正
   // 注: これは完璧ではないが、多くのケースをカバー
-  let result = input;
+  const result = input;
 
   // JSONを行ごとに処理
   const lines = result.split("\n");
@@ -252,7 +252,7 @@ function progressiveLineRemoval(input: string): string {
     const partialInput = lines.slice(0, i).join("\n");
 
     // 閉じ括弧を追加してみる
-    let attempts = [
+    const attempts = [
       partialInput,
       partialInput + "}",
       partialInput + "]}",

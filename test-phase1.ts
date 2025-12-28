@@ -12,7 +12,6 @@ import {
   getReflectionThreshold,
   formatReflectionSummary,
   type ReflectionResult,
-  type SuggestionValidation,
 } from "./src/lib/ai/reflection";
 import type { InlineComment } from "./src/lib/ai/schemas";
 

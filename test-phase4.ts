@@ -10,7 +10,6 @@ import {
   filterByRelevanceScore,
   RELEVANCE_CONFIG,
   type InlineComment,
-  type RelevanceCategory,
 } from "./src/lib/ai/schemas";
 import {
   formatRelevanceScore,
