@@ -5,6 +5,12 @@ import { REVIEW_SYSTEM_PROMPT, buildReviewPrompt, buildSummaryComment, formatInl
 import type { ParsedFile } from "../diff/types";
 import { countTokens, truncateToTokenLimit } from "../tokenizer";
 import type { AdaptiveContext } from "./memory/types";
+import {
+  applyReflection,
+  isReflectionEnabled,
+  formatReflectionSummary,
+  type ReflectionResult,
+} from "./reflection";
 
 // レビュー生成の最大入力トークン数
 const MAX_INPUT_TOKENS = 100000;
@@ -29,6 +35,9 @@ export interface GeneratedReview {
     severity: string;
   }>;
   tokenCount: number;
+  // 反省結果（反省が実行された場合）
+  reflection?: ReflectionResult;
+  reflectionApplied: boolean;
 }
 
 // JSON出力を要求するプロンプト拡張
@@ -155,21 +164,53 @@ export async function generateReview(params: GenerateReviewParams): Promise<Gene
     };
   }
 
+  // 反省プロセスを適用（有効な場合）
+  let filteredComments = result.comments;
+  let reflectionResult: ReflectionResult | undefined;
+  let reflectionApplied = false;
+
+  if (isReflectionEnabled() && result.comments.length > 0) {
+    console.log("[AI Review] Applying self-reflection...");
+    try {
+      const reflectionOutput = await applyReflection({
+        prTitle,
+        prBody,
+        diffContent: truncatedDiff,
+        comments: result.comments,
+      });
+
+      if (reflectionOutput.filtered) {
+        filteredComments = reflectionOutput.comments;
+        reflectionResult = reflectionOutput.reflection;
+        reflectionApplied = true;
+        console.log(`[AI Review] Reflection filtered ${result.comments.length - filteredComments.length} comments`);
+      }
+    } catch (reflectionError) {
+      console.warn("[AI Review] Reflection failed, using original comments:", reflectionError);
+    }
+  }
+
   // サマリーコメント生成
-  const criticalCount = result.comments.filter((c) => c.severity === "CRITICAL").length;
-  const importantCount = result.comments.filter((c) => c.severity === "IMPORTANT").length;
+  const criticalCount = filteredComments.filter((c) => c.severity === "CRITICAL").length;
+  const importantCount = filteredComments.filter((c) => c.severity === "IMPORTANT").length;
+
+  let summaryContent = result.summary;
+  // 反省結果がある場合はサマリーに追加
+  if (reflectionResult && reflectionApplied) {
+    summaryContent += `\n\n${formatReflectionSummary(reflectionResult)}`;
+  }
 
   const summaryComment = buildSummaryComment({
-    summary: result.summary,
+    summary: summaryContent,
     walkthrough: result.walkthrough,
     diagram: result.diagram,
-    commentsCount: result.comments.length,
+    commentsCount: filteredComments.length,
     criticalCount,
     importantCount,
   });
 
   // インラインコメントをフォーマット
-  const inlineComments = result.comments.map((comment) => ({
+  const inlineComments = filteredComments.map((comment) => ({
     path: comment.path,
     endLine: comment.endLine,
     startLine: comment.startLine,
@@ -182,10 +223,15 @@ export async function generateReview(params: GenerateReviewParams): Promise<Gene
   }));
 
   return {
-    result,
+    result: {
+      ...result,
+      comments: filteredComments, // フィルタリング後のコメントを反映
+    },
     summaryComment,
     inlineComments,
     tokenCount: totalTokens,
+    reflection: reflectionResult,
+    reflectionApplied,
   };
 }
 

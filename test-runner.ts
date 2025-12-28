@@ -392,7 +392,8 @@ test('formatForGitHubReview: Converts endLine to line for GitHub API', () => {
         severity: 'INFO'
       }
     ],
-    tokenCount: 100
+    tokenCount: 100,
+    reflectionApplied: false
   };
 
   const result = formatForGitHubReview(mockReview);
@@ -424,7 +425,8 @@ test('formatForGitHubReview: Single line comment has no start_line', () => {
         severity: 'INFO'
       }
     ],
-    tokenCount: 100
+    tokenCount: 100,
+    reflectionApplied: false
   };
 
   const result = formatForGitHubReview(mockReview);
@@ -451,7 +453,8 @@ test('formatForGitHubReview: CRITICAL severity triggers REQUEST_CHANGES', () => 
         severity: 'CRITICAL'
       }
     ],
-    tokenCount: 100
+    tokenCount: 100,
+    reflectionApplied: false
   };
 
   const result = formatForGitHubReview(mockReview);
@@ -478,7 +481,8 @@ test('formatForGitHubReview: Side is always RIGHT', () => {
         severity: 'INFO'
       }
     ],
-    tokenCount: 100
+    tokenCount: 100,
+    reflectionApplied: false
   };
 
   const result = formatForGitHubReview(mockReview);
@@ -538,7 +542,8 @@ const fullReviewExample: GeneratedReview = {
       severity: 'INFO'
     }
   ],
-  tokenCount: 1500
+  tokenCount: 1500,
+  reflectionApplied: false
 };
 
 const formattedReview = formatForGitHubReview(fullReviewExample);
