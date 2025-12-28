@@ -10,6 +10,7 @@ import {
   Settings,
   LogOut,
   Coins,
+  Brain,
 } from "lucide-react";
 import { signOut } from "@/lib/auth-client";
 
@@ -17,6 +18,7 @@ const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Repositories", href: "/dashboard/repositories", icon: GitBranch },
   { name: "Reviews", href: "/dashboard/reviews", icon: MessageSquare },
+  { name: "Learning", href: "/dashboard/learning", icon: Brain },
   { name: "Usage & Cost", href: "/dashboard/usage", icon: Coins },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
