@@ -36,27 +36,25 @@ export interface GeneratedReview {
 // JSON出力を要求するプロンプト拡張
 const JSON_OUTPUT_INSTRUCTION = `
 
-## 出力形式
+---
+【必須】以下のJSON形式のみで出力してください。説明文やMarkdownは禁止です。
+---
 
-必ず以下のJSON形式で出力してください。JSONのみを出力し、他のテキストは含めないでください。
-
-**重要**: nullは使用禁止。不要なフィールドは省略してください。
-
-\`\`\`json
 {
-  "summary": "PRの変更内容の総合的なサマリー",
+  "summary": "PRの変更内容の総合的なサマリー（日本語）",
   "walkthrough": [
-    { "path": "ファイルパス", "summary": "変更内容の要約", "changeType": "add" | "modify" | "delete" | "rename" }
+    { "path": "ファイルパス", "summary": "変更内容の要約", "changeType": "add" }
   ],
   "comments": [
-    { "path": "ファイルパス", "line": 行番号, "body": "コメント内容", "severity": "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK" }
+    { "path": "ファイルパス", "line": 10, "body": "コメント内容", "severity": "INFO" }
   ]
 }
-\`\`\`
 
-オプションフィールド（具体的なコード修正案がある場合のみ追加）:
-- comments[].suggestion: 修正後のコード（例: "const x = value ?? 0;"）
-- diagram: Mermaidダイアグラム`;
+- changeType: "add" | "modify" | "delete" | "rename"
+- severity: "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK"
+- suggestion: 修正コードがある場合のみ追加（省略可）
+- diagram: Mermaid図がある場合のみ追加（省略可）
+- nullは使用禁止、不要なフィールドは省略`;
 
 /**
  * AIレビューを生成
