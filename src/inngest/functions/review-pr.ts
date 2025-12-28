@@ -8,10 +8,17 @@ import {
 } from "@/lib/github/client";
 import { parseDiff } from "@/lib/diff/parser";
 import { filterReviewableFiles, detectLanguage } from "@/lib/diff/filter";
+import { convertCommentsToPositionBased } from "@/lib/diff/line-validator";
 import { generateReview, formatForGitHubReview } from "@/lib/ai/review";
 import { reconstructDiff } from "@/lib/diff/parser";
-import { generateQueriesFromDiff, searchWithMultipleQueries } from "@/lib/rag/search";
-import { buildSimpleContext, buildEnhancedContext } from "@/lib/rag/context-builder";
+import {
+  generateQueriesFromDiff,
+  searchWithMultipleQueries,
+} from "@/lib/rag/search";
+import {
+  buildSimpleContext,
+  buildEnhancedContext,
+} from "@/lib/rag/context-builder";
 import { getNamespaceStats } from "@/lib/pinecone/client";
 import { searchRelevantRules, buildRulesContext } from "@/lib/rag/rules-search";
 import { searchRelevantSpecs, buildSpecsContext } from "@/lib/rag/specs-search";
@@ -181,9 +188,10 @@ export const reviewPR = inngest.createFunction(
           console.log(`[Inngest] Generated ${queries.length} RAG queries`);
 
           // 主要言語を検出
-          const primaryLanguage = parsedData.files.length > 0
-            ? detectLanguage(parsedData.files[0].newPath)
-            : undefined;
+          const primaryLanguage =
+            parsedData.files.length > 0
+              ? detectLanguage(parsedData.files[0].newPath)
+              : undefined;
 
           // 検索実行
           const searchResults = await searchWithMultipleQueries(
@@ -198,7 +206,9 @@ export const reviewPR = inngest.createFunction(
             return null;
           }
 
-          console.log(`[Inngest] Found ${searchResults.length} relevant code chunks`);
+          console.log(
+            `[Inngest] Found ${searchResults.length} relevant code chunks`
+          );
 
           // コンテキストを構築
           return buildSimpleContext(searchResults);
@@ -257,7 +267,9 @@ export const reviewPR = inngest.createFunction(
             return null;
           }
 
-          console.log(`[Inngest] Found ${totalFound} relevant specification chunks`);
+          console.log(
+            `[Inngest] Found ${totalFound} relevant specification chunks`
+          );
           return buildSpecsContext(specs);
         } catch (error) {
           console.warn("[Inngest] Specs context fetch failed:", error);
@@ -350,21 +362,36 @@ export const reviewPR = inngest.createFunction(
       const octokit = await getInstallationOctokit(installationId);
       const githubReview = formatForGitHubReview(aiReview);
 
+      // コメントの行番号をdiff positionに変換
+      // GitHub APIの `position` パラメータを使用することで "Line could not be resolved" エラーを回避
+      const positionBasedComments = convertCommentsToPositionBased(
+        githubReview.comments,
+        parsedData.files
+      );
+
       console.log("[Inngest] Posting review with comments:", {
-        commentsCount: githubReview.comments.length,
-        comments: githubReview.comments.map(c => ({ path: c.path, line: c.line, side: c.side })),
+        originalCount: githubReview.comments.length,
+        convertedCount: positionBasedComments.length,
+        comments: positionBasedComments.map((c) => ({
+          path: c.path,
+          position: c.position,
+        })),
         event: githubReview.event,
       });
 
       try {
         await createPullRequestReview(octokit, owner, repo, prNumber, headSha, {
           body: githubReview.body,
-          comments: githubReview.comments,
+          comments: positionBasedComments,
           event: githubReview.event,
         });
         console.log("[Inngest] Posted review to GitHub successfully");
       } catch (error: unknown) {
-        const err = error as { message?: string; status?: number; response?: { data?: unknown } };
+        const err = error as {
+          message?: string;
+          status?: number;
+          response?: { data?: unknown };
+        };
         console.error("[Inngest] Failed to post review:", {
           message: err.message,
           status: err.status,
@@ -520,14 +547,21 @@ export const reviewPRIncremental = inngest.createFunction(
           });
 
           if (totalFound === 0) {
-            console.log("[Inngest] No learned rules found for incremental context");
+            console.log(
+              "[Inngest] No learned rules found for incremental context"
+            );
             return null;
           }
 
-          console.log(`[Inngest] Found ${totalFound} relevant learned rules for incremental review`);
+          console.log(
+            `[Inngest] Found ${totalFound} relevant learned rules for incremental review`
+          );
           return buildRulesContext(rules);
         } catch (error) {
-          console.warn("[Inngest] Rules context fetch failed (incremental):", error);
+          console.warn(
+            "[Inngest] Rules context fetch failed (incremental):",
+            error
+          );
           return null;
         }
       }
@@ -550,10 +584,15 @@ export const reviewPRIncremental = inngest.createFunction(
             return null;
           }
 
-          console.log(`[Inngest] Found ${totalFound} relevant specification chunks for incremental review`);
+          console.log(
+            `[Inngest] Found ${totalFound} relevant specification chunks for incremental review`
+          );
           return buildSpecsContext(specs);
         } catch (error) {
-          console.warn("[Inngest] Specs context fetch failed (incremental):", error);
+          console.warn(
+            "[Inngest] Specs context fetch failed (incremental):",
+            error
+          );
           return null;
         }
       }
@@ -635,6 +674,12 @@ export const reviewPRIncremental = inngest.createFunction(
       const octokit = await getInstallationOctokit(installationId);
       const githubReview = formatForGitHubReview(aiReview);
 
+      // コメントの行番号をdiff positionに変換
+      const positionBasedComments = convertCommentsToPositionBased(
+        githubReview.comments,
+        parsedData.files
+      );
+
       // 増分レビューであることを明記
       const incrementalBody = `## 🔄 Incremental Review
 
@@ -648,20 +693,37 @@ This review covers changes from \`${beforeSha.slice(
 ${githubReview.body}`;
 
       console.log("[Inngest] Posting incremental review with comments:", {
-        commentsCount: githubReview.comments.length,
-        comments: githubReview.comments.map(c => ({ path: c.path, line: c.line, side: c.side })),
+        originalCount: githubReview.comments.length,
+        convertedCount: positionBasedComments.length,
+        comments: positionBasedComments.map((c) => ({
+          path: c.path,
+          position: c.position,
+        })),
         event: githubReview.event,
       });
 
       try {
-        await createPullRequestReview(octokit, owner, repo, prNumber, afterSha, {
-          body: incrementalBody,
-          comments: githubReview.comments,
-          event: githubReview.event,
-        });
-        console.log("[Inngest] Posted incremental review to GitHub successfully");
+        await createPullRequestReview(
+          octokit,
+          owner,
+          repo,
+          prNumber,
+          afterSha,
+          {
+            body: incrementalBody,
+            comments: positionBasedComments,
+            event: githubReview.event,
+          }
+        );
+        console.log(
+          "[Inngest] Posted incremental review to GitHub successfully"
+        );
       } catch (error: unknown) {
-        const err = error as { message?: string; status?: number; response?: { data?: unknown } };
+        const err = error as {
+          message?: string;
+          status?: number;
+          response?: { data?: unknown };
+        };
         console.error("[Inngest] Failed to post incremental review:", {
           message: err.message,
           status: err.status,

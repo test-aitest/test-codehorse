@@ -400,6 +400,12 @@ export async function createPullRequestReviewById(
 
 /**
  * PRにレビューコメントを投稿（Octokit版、イベントタイプ指定可）
+ *
+ * コメントの行指定方法:
+ * - position: diff内の位置（'@@'ヘッダーから1-indexed）- 推奨
+ * - line + side: ファイル行番号（diff内に存在する行のみ）
+ *
+ * @see https://docs.github.com/rest/pulls/reviews#create-a-review-for-a-pull-request
  */
 export async function createPullRequestReview(
   octokit: Octokit,
@@ -411,8 +417,8 @@ export async function createPullRequestReview(
     body: string;
     comments: Array<{
       path: string;
-      position?: number;
-      line?: number;
+      position?: number;  // diff内の位置（推奨）
+      line?: number;      // ファイル行番号
       side?: "LEFT" | "RIGHT";
       body: string;
     }>;
