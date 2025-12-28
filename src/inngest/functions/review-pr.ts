@@ -6,11 +6,10 @@ import {
   getPullRequestDetails,
   createPullRequestReview,
 } from "@/lib/github/client";
-import { parseDiff } from "@/lib/diff/parser";
+import { parseDiff, reconstructDiffWithLineNumbers } from "@/lib/diff/parser";
 import { filterReviewableFiles, detectLanguage } from "@/lib/diff/filter";
 import { convertCommentsToPositionBased } from "@/lib/diff/line-validator";
 import { generateReview, formatForGitHubReview } from "@/lib/ai/review";
-import { reconstructDiff } from "@/lib/diff/parser";
 import {
   generateQueriesFromDiff,
   searchWithMultipleQueries,
@@ -151,8 +150,8 @@ export const reviewPR = inngest.createFunction(
       const parsed = parseDiff(prData.rawDiff);
       const reviewableFiles = filterReviewableFiles(parsed.files);
 
-      // レビュー対象ファイルのDiffを再構築
-      const filteredDiff = reviewableFiles.map(reconstructDiff).join("\n\n");
+      // レビュー対象ファイルのDiffを再構築（行番号付き）
+      const filteredDiff = reviewableFiles.map(reconstructDiffWithLineNumbers).join("\n\n");
 
       console.log(
         `[Inngest] Parsed ${parsed.files.length} files, ${reviewableFiles.length} reviewable`
@@ -526,7 +525,7 @@ export const reviewPRIncremental = inngest.createFunction(
     const parsedData = await step.run("parse-diff", async () => {
       const parsed = parseDiff(prData.rawDiff);
       const reviewableFiles = filterReviewableFiles(parsed.files);
-      const filteredDiff = reviewableFiles.map(reconstructDiff).join("\n\n");
+      const filteredDiff = reviewableFiles.map(reconstructDiffWithLineNumbers).join("\n\n");
 
       return {
         files: reviewableFiles,

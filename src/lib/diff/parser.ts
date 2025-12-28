@@ -148,3 +148,42 @@ export function reconstructDiff(file: ParsedFile): string {
 
   return lines.join("\n");
 }
+
+/**
+ * ParsedFileからDiff文字列を再構築（行番号付き）
+ * AIがコメント対象の行番号を正確に特定できるよう、各行に行番号を付与
+ */
+export function reconstructDiffWithLineNumbers(file: ParsedFile): string {
+  const lines: string[] = [];
+
+  lines.push(`diff --git a/${file.oldPath} b/${file.newPath}`);
+
+  if (file.type === "add") {
+    lines.push(`new file mode 100644`);
+  } else if (file.type === "delete") {
+    lines.push(`deleted file mode 100644`);
+  }
+
+  lines.push(`--- a/${file.oldPath}`);
+  lines.push(`+++ b/${file.newPath}`);
+
+  for (const hunk of file.hunks) {
+    lines.push(
+      `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`
+    );
+    for (const change of hunk.changes) {
+      if (change.type === "delete") {
+        // 削除行：行番号なし（コメント不可）
+        lines.push(`-${change.content}`);
+      } else {
+        // 追加行またはコンテキスト行：行番号を付与（コメント可能）
+        const prefix = change.type === "insert" ? "+" : " ";
+        // 行番号を右寄せ4桁で表示
+        const lineNum = change.lineNumber.toString().padStart(4, " ");
+        lines.push(`${lineNum}:${prefix}${change.content}`);
+      }
+    }
+  }
+
+  return lines.join("\n");
+}

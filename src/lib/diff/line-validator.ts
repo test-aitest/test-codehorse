@@ -50,7 +50,10 @@ export function convertCommentsToPositionBased(
   const result: Array<{ path: string; position: number; body: string }> = [];
 
   // デバッグ: 利用可能なファイルパス一覧
-  console.log("[LineValidator] Available files:", files.map(f => f.newPath));
+  console.log(
+    "[LineValidator] Available files:",
+    files.map((f) => f.newPath)
+  );
 
   // ファイルごとのマッピングをキャッシュ
   const fileMapCache = new Map<string, Map<number, number>>();
@@ -63,7 +66,9 @@ export function convertCommentsToPositionBased(
 
     if (!file) {
       console.warn(`[LineValidator] File not found: ${comment.path}`);
-      console.warn(`[LineValidator] Available: ${files.map(f => f.newPath).join(", ")}`);
+      console.warn(
+        `[LineValidator] Available: ${files.map((f) => f.newPath).join(", ")}`
+      );
       continue;
     }
 
@@ -73,8 +78,10 @@ export function convertCommentsToPositionBased(
       lineToPosition = buildLineToPositionMap(file);
       fileMapCache.set(file.newPath, lineToPosition);
       // デバッグ: マッピング内容
-      console.log(`[LineValidator] ${file.newPath} line→position map:`,
-        Array.from(lineToPosition.entries()).slice(0, 10));
+      console.log(
+        `[LineValidator] ${file.newPath} line→position map:`,
+        Array.from(lineToPosition.entries()).slice(0, 10)
+      );
     }
 
     // 行番号からpositionを取得
@@ -85,18 +92,24 @@ export function convertCommentsToPositionBased(
         position,
         body: comment.body,
       });
-      console.log(`[LineValidator] ✓ ${comment.path}:${comment.line} → position ${position}`);
+      console.log(
+        `[LineValidator] ✓ ${comment.path}:${comment.line} → position ${position}`
+      );
     } else {
       console.warn(
         `[LineValidator] ✗ Line ${comment.line} not in diff: ${comment.path}`
       );
       console.warn(
-        `[LineValidator] Available lines: ${Array.from(lineToPosition.keys()).sort((a,b) => a-b).join(", ")}`
+        `[LineValidator] Available lines: ${Array.from(lineToPosition.keys())
+          .sort((a, b) => a - b)
+          .join(", ")}`
       );
     }
   }
 
-  console.log(`[LineValidator] Converted ${comments.length} → ${result.length} comments`);
+  console.log(
+    `[LineValidator] Converted ${comments.length} → ${result.length} comments`
+  );
 
   return result;
 }
