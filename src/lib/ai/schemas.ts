@@ -10,7 +10,8 @@ export const InlineCommentSchema = z.object({
   line: z.number().describe("コメント対象の行番号"),
   body: z.string().describe("コメント内容（Markdown形式）"),
   severity: SeveritySchema.describe("問題の深刻度"),
-  suggestion: z.string().optional().describe("修正提案（コードブロック形式）"),
+  // AIがnullを返す場合があるのでundefinedに変換
+  suggestion: z.string().nullable().transform(v => v ?? undefined).optional().describe("修正提案（コードブロック形式）"),
 });
 export type InlineComment = z.infer<typeof InlineCommentSchema>;
 
