@@ -4,12 +4,11 @@ import {
   getInstallationOctokit,
   getPullRequestDiff,
   getPullRequestDetails,
-  createPullRequestReview,
 } from "@/lib/github/client";
-import { parseDiff } from "@/lib/diff/parser";
+import { parseDiff, reconstructDiff } from "@/lib/diff/parser";
 import { filterReviewableFiles, detectLanguage } from "@/lib/diff/filter";
 import { generateReview, formatForGitHubReview } from "@/lib/ai/review";
-import { reconstructDiff } from "@/lib/diff/parser";
+import { submitReviewWithFallback, type ReviewComment } from "@/lib/github/review-submitter";
 import { generateQueriesFromDiff, searchWithMultipleQueries } from "@/lib/rag/search";
 import { buildSimpleContext } from "@/lib/rag/context-builder";
 import { getNamespaceStats } from "@/lib/pinecone/client";
@@ -139,21 +138,22 @@ export const reviewPR = inngest.createFunction(
 
     // Step 3: Diffをパースしてフィルタリング
     const parsedData = await step.run("parse-diff", async () => {
-      const parsed = parseDiff(prData.rawDiff);
-      const reviewableFiles = filterReviewableFiles(parsed.files);
+      const parsedDiff = parseDiff(prData.rawDiff);
+      const reviewableFiles = filterReviewableFiles(parsedDiff.files);
 
       // レビュー対象ファイルのDiffを再構築
       const filteredDiff = reviewableFiles.map(reconstructDiff).join("\n\n");
 
       console.log(
-        `[Inngest] Parsed ${parsed.files.length} files, ${reviewableFiles.length} reviewable`
+        `[Inngest] Parsed ${parsedDiff.files.length} files, ${reviewableFiles.length} reviewable`
       );
 
       return {
+        parsedDiff, // コメント位置検証用に保持
         files: reviewableFiles,
         filteredDiff,
-        totalAdditions: parsed.totalAdditions,
-        totalDeletions: parsed.totalDeletions,
+        totalAdditions: parsedDiff.totalAdditions,
+        totalDeletions: parsedDiff.totalDeletions,
       };
     });
 
@@ -262,7 +262,7 @@ export const reviewPR = inngest.createFunction(
           data: aiReview.inlineComments.map((comment) => ({
             reviewId: dbSetup.reviewId,
             filePath: comment.path,
-            lineNumber: comment.line,
+            lineNumber: comment.endLine,
             body: comment.body,
             severity: comment.severity as
               | "CRITICAL"
@@ -274,7 +274,7 @@ export const reviewPR = inngest.createFunction(
       }
     });
 
-    // Step 7: GitHubにコメントを投稿
+    // Step 7: GitHubにコメントを投稿（422エラーハンドリング付き）
     await step.run("post-review", async () => {
       if (!aiReview) {
         console.log("[Inngest] No review to post");
@@ -286,25 +286,33 @@ export const reviewPR = inngest.createFunction(
 
       console.log("[Inngest] Posting review with comments:", {
         commentsCount: githubReview.comments.length,
-        comments: githubReview.comments.map(c => ({ path: c.path, line: c.line, side: c.side })),
         event: githubReview.event,
       });
 
-      try {
-        await createPullRequestReview(octokit, owner, repo, prNumber, headSha, {
+      // 新しいsubmitterを使用（422エラーハンドリング付き）
+      const result = await submitReviewWithFallback(
+        octokit,
+        owner,
+        repo,
+        prNumber,
+        headSha,
+        {
           body: githubReview.body,
-          comments: githubReview.comments,
+          comments: githubReview.comments as ReviewComment[],
           event: githubReview.event,
-        });
-        console.log("[Inngest] Posted review to GitHub successfully");
-      } catch (error: unknown) {
-        const err = error as { message?: string; status?: number; response?: { data?: unknown } };
-        console.error("[Inngest] Failed to post review:", {
-          message: err.message,
-          status: err.status,
-          response: err.response?.data,
-        });
-        throw error;
+        },
+        parsedData.parsedDiff
+      );
+
+      console.log("[Inngest] Review submission result:", {
+        success: result.success,
+        postedComments: result.postedComments,
+        failedComments: result.failedComments.length,
+        fallback: result.fallbackToIssueComment,
+      });
+
+      if (!result.success) {
+        throw new Error(`Failed to post review: ${result.error}`);
       }
     });
 
@@ -429,11 +437,12 @@ export const reviewPRIncremental = inngest.createFunction(
 
     // Step 4: Diffをパース
     const parsedData = await step.run("parse-diff", async () => {
-      const parsed = parseDiff(prData.rawDiff);
-      const reviewableFiles = filterReviewableFiles(parsed.files);
+      const parsedDiff = parseDiff(prData.rawDiff);
+      const reviewableFiles = filterReviewableFiles(parsedDiff.files);
       const filteredDiff = reviewableFiles.map(reconstructDiff).join("\n\n");
 
       return {
+        parsedDiff,
         files: reviewableFiles,
         filteredDiff,
       };
@@ -488,7 +497,7 @@ export const reviewPRIncremental = inngest.createFunction(
           data: aiReview.inlineComments.map((comment) => ({
             reviewId: dbSetup.reviewId,
             filePath: comment.path,
-            lineNumber: comment.line,
+            lineNumber: comment.endLine,
             body: comment.body,
             severity: comment.severity as
               | "CRITICAL"
@@ -500,7 +509,7 @@ export const reviewPRIncremental = inngest.createFunction(
       }
     });
 
-    // Step 7: GitHubにコメントを投稿
+    // Step 7: GitHubにコメントを投稿（422エラーハンドリング付き）
     await step.run("post-incremental-review", async () => {
       if (!aiReview) return;
 
@@ -521,25 +530,33 @@ ${githubReview.body}`;
 
       console.log("[Inngest] Posting incremental review with comments:", {
         commentsCount: githubReview.comments.length,
-        comments: githubReview.comments.map(c => ({ path: c.path, line: c.line, side: c.side })),
         event: githubReview.event,
       });
 
-      try {
-        await createPullRequestReview(octokit, owner, repo, prNumber, afterSha, {
+      // 新しいsubmitterを使用（422エラーハンドリング付き）
+      const result = await submitReviewWithFallback(
+        octokit,
+        owner,
+        repo,
+        prNumber,
+        afterSha,
+        {
           body: incrementalBody,
-          comments: githubReview.comments,
+          comments: githubReview.comments as ReviewComment[],
           event: githubReview.event,
-        });
-        console.log("[Inngest] Posted incremental review to GitHub successfully");
-      } catch (error: unknown) {
-        const err = error as { message?: string; status?: number; response?: { data?: unknown } };
-        console.error("[Inngest] Failed to post incremental review:", {
-          message: err.message,
-          status: err.status,
-          response: err.response?.data,
-        });
-        throw error;
+        },
+        parsedData.parsedDiff
+      );
+
+      console.log("[Inngest] Incremental review submission result:", {
+        success: result.success,
+        postedComments: result.postedComments,
+        failedComments: result.failedComments.length,
+        fallback: result.fallbackToIssueComment,
+      });
+
+      if (!result.success) {
+        throw new Error(`Failed to post incremental review: ${result.error}`);
       }
     });
 

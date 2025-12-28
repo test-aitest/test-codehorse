@@ -1,4 +1,8 @@
 import type { ParsedFile } from "../diff/types";
+import {
+  formatInlineCommentWithSuggestion,
+  isValidSuggestion,
+} from "../github/suggestion-formatter";
 
 // システムプロンプト
 export const REVIEW_SYSTEM_PROMPT = `あなたは経験豊富なシニアソフトウェアエンジニアで、コードレビューのエキスパートです。
@@ -148,6 +152,7 @@ ${diagram}
 }
 
 // インラインコメントのフォーマット
+// GitHubネイティブのsuggestion block形式を使用
 export function formatInlineComment(params: {
   body: string;
   severity: string;
@@ -155,18 +160,12 @@ export function formatInlineComment(params: {
 }): string {
   const { body, severity, suggestion } = params;
 
-  const severityEmoji = {
-    CRITICAL: "🔴",
-    IMPORTANT: "🟠",
-    INFO: "🔵",
-    NITPICK: "⚪",
-  }[severity] || "💬";
+  // 有効なsuggestionがある場合のみsuggestion blockを使用
+  const validSuggestion = isValidSuggestion(suggestion) ? suggestion : undefined;
 
-  let comment = `${severityEmoji} **[${severity}]**\n\n${body}`;
-
-  if (suggestion) {
-    comment += `\n\n**💡 修正提案:**\n\`\`\`suggestion\n${suggestion}\n\`\`\``;
-  }
-
-  return comment;
+  return formatInlineCommentWithSuggestion({
+    body,
+    severity,
+    suggestion: validSuggestion,
+  });
 }

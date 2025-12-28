@@ -21,7 +21,8 @@ export interface GeneratedReview {
   summaryComment: string;
   inlineComments: Array<{
     path: string;
-    line: number;
+    endLine: number;     // コメント対象の終了行番号
+    startLine?: number;  // 複数行コメント用の開始行番号
     body: string;
     severity: string;
   }>;
@@ -48,15 +49,24 @@ const JSON_OUTPUT_INSTRUCTION = `
   "comments": [
     {
       "path": "ファイルパス",
-      "line": 行番号,
+      "endLine": 終了行番号,
+      "startLine": 開始行番号（複数行の場合のみ、省略可）,
       "body": "コメント内容（Markdown形式）",
       "severity": "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
-      "suggestion": "修正提案（任意）"
+      "suggestion": "修正後のコード（行番号なし、純粋なコードのみ）",
+      "suggestionStartLine": 修正開始行,
+      "suggestionEndLine": 修正終了行
     }
   ],
   "diagram": "Mermaidダイアグラム（任意）"
 }
-\`\`\``;
+\`\`\`
+
+### 修正提案について
+- suggestionフィールドには、置き換えるコードを記述してください
+- suggestionStartLine/suggestionEndLineで修正対象の行範囲を指定してください
+- 複数行の修正は改行で区切って記述してください
+- 行番号は含めず、コードのみを記述してください`;
 
 /**
  * AIレビューを生成
@@ -158,7 +168,8 @@ export async function generateReview(params: GenerateReviewParams): Promise<Gene
   // インラインコメントをフォーマット
   const inlineComments = result.comments.map((comment) => ({
     path: comment.path,
-    line: comment.line,
+    endLine: comment.endLine,
+    startLine: comment.startLine,
     body: formatInlineComment({
       body: comment.body,
       severity: comment.severity,
@@ -175,13 +186,24 @@ export async function generateReview(params: GenerateReviewParams): Promise<Gene
   };
 }
 
+// GitHub API用コメント型
+export interface GitHubReviewComment {
+  path: string;
+  line: number;
+  start_line?: number;
+  side: "RIGHT";
+  start_side?: "RIGHT";
+  body: string;
+}
+
 /**
  * レビュー結果をGitHub API用にフォーマット
  * すべてのコメントをインラインコメントとして投稿
+ * 複数行コメントはstart_line/start_sideを使用
  */
 export function formatForGitHubReview(review: GeneratedReview): {
   body: string;
-  comments: Array<{ path: string; line: number; side: "RIGHT"; body: string }>;
+  comments: GitHubReviewComment[];
   event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
 } {
   const hasCritical = review.inlineComments.some((c) => c.severity === "CRITICAL");
@@ -192,12 +214,23 @@ export function formatForGitHubReview(review: GeneratedReview): {
     : "COMMENT";
 
   // すべてのコメントをインラインコメントとして投稿
-  const comments = review.inlineComments.map((c) => ({
-    path: c.path,
-    line: c.line,
-    side: "RIGHT" as const,
-    body: c.body,
-  }));
+  // GitHub APIは`line`を期待するため、内部の`endLine`を`line`に変換
+  const comments: GitHubReviewComment[] = review.inlineComments.map((c) => {
+    const comment: GitHubReviewComment = {
+      path: c.path,
+      line: c.endLine,  // endLineをGitHub APIのlineにマッピング
+      side: "RIGHT",
+      body: c.body,
+    };
+
+    // 複数行コメントの場合はstart_lineとstart_sideを追加
+    if (c.startLine && c.startLine !== c.endLine) {
+      comment.start_line = c.startLine;
+      comment.start_side = "RIGHT";
+    }
+
+    return comment;
+  });
 
   return {
     body: review.summaryComment,

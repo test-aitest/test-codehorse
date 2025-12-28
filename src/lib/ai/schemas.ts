@@ -7,10 +7,13 @@ export type Severity = z.infer<typeof SeveritySchema>;
 // インラインコメント
 export const InlineCommentSchema = z.object({
   path: z.string().describe("ファイルパス"),
-  line: z.number().describe("コメント対象の行番号"),
+  endLine: z.number().describe("コメント対象の終了行番号"),
+  startLine: z.number().optional().describe("複数行コメントの開始行番号（省略時はendLineと同じ）"),
   body: z.string().describe("コメント内容（Markdown形式）"),
   severity: SeveritySchema.describe("問題の深刻度"),
-  suggestion: z.string().optional().describe("修正提案（コードブロック形式）"),
+  suggestion: z.string().optional().describe("修正後のコード（行番号なし、純粋なコードのみ）"),
+  suggestionStartLine: z.number().optional().describe("修正対象の開始行番号"),
+  suggestionEndLine: z.number().optional().describe("修正対象の終了行番号"),
 });
 export type InlineComment = z.infer<typeof InlineCommentSchema>;
 

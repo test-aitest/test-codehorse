@@ -398,8 +398,20 @@ export async function createPullRequestReviewById(
   });
 }
 
+// レビューコメントの型定義（複数行コメント対応）
+export interface ReviewCommentInput {
+  path: string;
+  position?: number;
+  line?: number;
+  start_line?: number;      // 複数行コメントの開始行
+  side?: "LEFT" | "RIGHT";
+  start_side?: "LEFT" | "RIGHT";  // 複数行コメントの開始側
+  body: string;
+}
+
 /**
  * PRにレビューコメントを投稿（Octokit版、イベントタイプ指定可）
+ * 複数行コメントをサポート（start_line/start_side）
  */
 export async function createPullRequestReview(
   octokit: Octokit,
@@ -409,13 +421,7 @@ export async function createPullRequestReview(
   commitId: string,
   options: {
     body: string;
-    comments: Array<{
-      path: string;
-      position?: number;
-      line?: number;
-      side?: "LEFT" | "RIGHT";
-      body: string;
-    }>;
+    comments: ReviewCommentInput[];
     event: "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
   }
 ) {
