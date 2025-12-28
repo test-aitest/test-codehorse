@@ -32,6 +32,12 @@ import {
   type DiffChunk,
   type ChunkReviewResult,
 } from "./chunking";
+import {
+  deduplicateComments,
+  isDeduplicationEnabled,
+  formatDeduplicationSummary,
+  type DeduplicationResult,
+} from "./deduplication";
 
 // レビュー生成の最大入力トークン数
 const MAX_INPUT_TOKENS = 100000;
@@ -63,6 +69,12 @@ export interface GeneratedReview {
   chunkStats?: {
     totalChunks: number;
     successfulChunks: number;
+    duplicatesRemoved: number;
+  };
+  // 重複除去統計（Phase 6）
+  deduplicationStats?: {
+    originalCount: number;
+    finalCount: number;
     duplicatesRemoved: number;
   };
 }
@@ -426,6 +438,20 @@ export async function generateReview(
     filteredComments = scoreFilter.accepted;
   }
 
+  // 重複除去（Phase 6）
+  let deduplicationResult: DeduplicationResult | undefined;
+  if (isDeduplicationEnabled() && filteredComments.length > 1) {
+    console.log("[AI Review] Applying deduplication...");
+    deduplicationResult = deduplicateComments(filteredComments);
+
+    if (deduplicationResult.stats.duplicatesRemoved > 0) {
+      console.log(
+        `[AI Review] Deduplication: ${formatDeduplicationSummary(deduplicationResult)}`
+      );
+      filteredComments = deduplicationResult.comments;
+    }
+  }
+
   // サマリーコメント生成
   const criticalCount = filteredComments.filter(
     (c) => c.severity === "CRITICAL"
@@ -475,6 +501,13 @@ export async function generateReview(
     reflection: reflectionResult,
     reflectionApplied,
     chunkStats,
+    deduplicationStats: deduplicationResult
+      ? {
+          originalCount: deduplicationResult.stats.originalCount,
+          finalCount: deduplicationResult.stats.finalCount,
+          duplicatesRemoved: deduplicationResult.stats.duplicatesRemoved,
+        }
+      : undefined,
   };
 }
 
