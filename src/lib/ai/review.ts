@@ -11,6 +11,7 @@ import {
   formatReflectionSummary,
   type ReflectionResult,
 } from "./reflection";
+import { repairAndParseJSON, formatRepairSummary } from "./parser";
 
 // レビュー生成の最大入力トークン数
 const MAX_INPUT_TOKENS = 100000;
@@ -125,36 +126,24 @@ export async function generateReview(params: GenerateReviewParams): Promise<Gene
     throw new Error(`AI API call failed: ${(apiError as Error).message}`);
   }
 
-  // JSONをパース
+  // JSONをパース（多段階修復付き）
   let result: ReviewResult;
-  try {
-    // JSONブロックを抽出（マークダウンコードブロックから）
-    let jsonStr = text;
+  const repairResult = repairAndParseJSON(text, ReviewResultSchema);
 
-    // ```json ... ``` または ``` ... ``` からJSON抽出
-    const codeBlockMatch = text.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-    if (codeBlockMatch && codeBlockMatch[1]) {
-      jsonStr = codeBlockMatch[1].trim();
-      console.log("[AI Review] Extracted JSON from code block");
-    } else {
-      // 生のJSONオブジェクトを検索
-      const jsonObjectMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonObjectMatch) {
-        jsonStr = jsonObjectMatch[0];
-        console.log("[AI Review] Extracted raw JSON object");
-      }
+  if (repairResult.success && repairResult.data) {
+    result = repairResult.data;
+    if (repairResult.repairStrategy) {
+      console.log(`[AI Review] JSON repaired using strategy: ${repairResult.repairStrategy}`);
     }
-
-    const parsed = JSON.parse(jsonStr);
-    result = ReviewResultSchema.parse(parsed);
-  } catch (error) {
-    console.error("[AI Review] Failed to parse response");
+  } else {
+    console.error("[AI Review] Failed to parse response after all repair attempts");
     console.error("[AI Review] Response text (first 500 chars):", text.slice(0, 500));
     console.error("[AI Review] Response text (last 500 chars):", text.slice(-500));
-    console.error("[AI Review] Parse error:", (error as Error).message);
+    console.error("[AI Review] Repair summary:\n", formatRepairSummary(repairResult));
+
     // フォールバック: 最小限のレビュー結果を返す
     result = {
-      summary: `レビュー生成中にエラーが発生しました: ${(error as Error).message}`,
+      summary: `レビュー生成中にパースエラーが発生しました。${repairResult.attempts.length}回の修復を試みましたが失敗しました。`,
       walkthrough: files.map(f => ({
         path: f.newPath,
         summary: `${f.type} changes`,

@@ -9,6 +9,7 @@ import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { z } from "zod";
 import type { InlineComment } from "./schemas";
+import { repairAndParseJSON, formatRepairSummary } from "./parser";
 
 // ========================================
 // 設定
@@ -160,30 +161,39 @@ export async function reflectOnReview(
   const prompt = basePrompt + JSON_OUTPUT_INSTRUCTION;
 
   try {
-    const result = await generateText({
+    const aiResult = await generateText({
       model: google("gemini-2.0-flash-exp"),
       prompt,
       temperature: 0.3,
     });
 
-    // JSONをパース
-    let jsonStr = result.text;
-    const codeBlockMatch = result.text.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-    if (codeBlockMatch && codeBlockMatch[1]) {
-      jsonStr = codeBlockMatch[1].trim();
-    } else {
-      const jsonObjectMatch = result.text.match(/\{[\s\S]*\}/);
-      if (jsonObjectMatch) {
-        jsonStr = jsonObjectMatch[0];
+    // JSONをパース（多段階修復付き）
+    const repairResult = repairAndParseJSON(aiResult.text, ReflectionResultSchema);
+
+    if (repairResult.success && repairResult.data) {
+      const validated = repairResult.data;
+      if (repairResult.repairStrategy) {
+        console.log(`[Reflection] JSON repaired using: ${repairResult.repairStrategy}`);
       }
+      console.log(`[Reflection] Quality: ${validated.overallQuality}/10, Comments validated: ${validated.suggestions.length}`);
+      return validated;
     }
 
-    const parsed = JSON.parse(jsonStr);
-    const validated = ReflectionResultSchema.parse(parsed);
+    // パース失敗
+    console.error("[Reflection] JSON repair failed");
+    console.error("[Reflection] Repair summary:\n", formatRepairSummary(repairResult));
 
-    console.log(`[Reflection] Quality: ${validated.overallQuality}/10, Comments validated: ${validated.suggestions.length}`);
-
-    return validated;
+    // フォールバック: 全コメントを採用
+    return {
+      overallQuality: 7,
+      suggestions: comments.map((_, i) => ({
+        index: i,
+        score: 7,
+        isRelevant: true,
+        reasoning: "反省結果のパースに失敗したため、スキップされました",
+      })),
+      summary: "反省結果のパースに失敗したため、全コメントを採用しました",
+    };
   } catch (error) {
     console.error("[Reflection] Failed:", error);
     // エラー時は全コメントを採用（反省をスキップ）
