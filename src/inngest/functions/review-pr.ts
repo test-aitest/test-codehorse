@@ -7,6 +7,13 @@ import {
 } from "@/lib/github/client";
 import { parseDiff, reconstructDiff } from "@/lib/diff/parser";
 import { filterReviewableFiles, detectLanguage } from "@/lib/diff/filter";
+import {
+  extendDiffContext,
+  createGitHubFileProvider,
+  isContextExtensionEnabled,
+  getContextOptionsFromEnv,
+  clearContextCache,
+} from "@/lib/diff/context-extender";
 import { generateReview, formatForGitHubReview } from "@/lib/ai/review";
 import { submitReviewWithFallback, type ReviewComment } from "@/lib/github/review-submitter";
 import { generateQueriesFromDiff, searchWithMultipleQueries } from "@/lib/rag/search";
@@ -163,6 +170,45 @@ export const reviewPR = inngest.createFunction(
       };
     });
 
+    // Step 3.5: Diffコンテキストを拡張（有効な場合）
+    const extendedDiffContent = await step.run("extend-diff-context", async () => {
+      if (!isContextExtensionEnabled()) {
+        console.log("[Inngest] Context extension disabled, using original diff");
+        return parsedData.filteredDiff;
+      }
+
+      if (parsedData.files.length === 0) {
+        return parsedData.filteredDiff;
+      }
+
+      try {
+        const octokit = await getInstallationOctokit(installationId);
+        const fileProvider = createGitHubFileProvider(octokit, owner, repo);
+        const options = getContextOptionsFromEnv();
+
+        console.log(`[Inngest] Extending diff context with ${options.contextLines} lines`);
+
+        const result = await extendDiffContext(
+          parsedData.files,
+          headSha,
+          fileProvider,
+          options
+        );
+
+        console.log(
+          `[Inngest] Context extension: ${result.stats.filesProcessed} processed, ${result.stats.totalContextLinesAdded} lines added`
+        );
+
+        // キャッシュをクリア（メモリ解放）
+        clearContextCache();
+
+        return result.extendedDiff;
+      } catch (error) {
+        console.warn("[Inngest] Context extension failed, using original diff:", error);
+        return parsedData.filteredDiff;
+      }
+    });
+
     // Step 4: RAGコンテキストを取得
     const ragContextResult = await step.run(
       "fetch-rag-context",
@@ -240,7 +286,7 @@ export const reviewPR = inngest.createFunction(
         prTitle: prData.title,
         prBody: prData.body,
         files: parsedData.files,
-        diffContent: parsedData.filteredDiff,
+        diffContent: extendedDiffContent, // 拡張されたDiffを使用
         ragContext,
         adaptiveContext: deserializeAdaptiveContext(adaptiveContext),
       });
@@ -511,6 +557,40 @@ export const reviewPRIncremental = inngest.createFunction(
       };
     });
 
+    // Step 4.5: Diffコンテキストを拡張（有効な場合）
+    const extendedDiffContent = await step.run("extend-diff-context", async () => {
+      if (!isContextExtensionEnabled()) {
+        return parsedData.filteredDiff;
+      }
+
+      if (parsedData.files.length === 0) {
+        return parsedData.filteredDiff;
+      }
+
+      try {
+        const octokit = await getInstallationOctokit(installationId);
+        const fileProvider = createGitHubFileProvider(octokit, owner, repo);
+        const options = getContextOptionsFromEnv();
+
+        const result = await extendDiffContext(
+          parsedData.files,
+          afterSha,
+          fileProvider,
+          options
+        );
+
+        console.log(
+          `[Inngest] Incremental context extension: ${result.stats.filesProcessed} processed`
+        );
+
+        clearContextCache();
+        return result.extendedDiff;
+      } catch (error) {
+        console.warn("[Inngest] Context extension failed:", error);
+        return parsedData.filteredDiff;
+      }
+    });
+
     // Step 5: 適応コンテキストを構築
     const adaptiveContext = await step.run("build-adaptive-context", async () => {
       try {
@@ -548,7 +628,7 @@ export const reviewPRIncremental = inngest.createFunction(
           7
         )}) からの増分更新です。\n\n${prData.body}`,
         files: parsedData.files,
-        diffContent: parsedData.filteredDiff,
+        diffContent: extendedDiffContent, // 拡張されたDiffを使用
         adaptiveContext: deserializeAdaptiveContext(adaptiveContext),
       });
 
