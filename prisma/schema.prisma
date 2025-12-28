@@ -101,8 +101,9 @@ model Repository {
   config Json?
 
   // リレーション
-  pullRequests PullRequest[]
-  users        UserRepository[]
+  pullRequests   PullRequest[]
+  users          UserRepository[]
+  specifications SpecificationDocument[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -189,7 +190,8 @@ model ReviewComment {
   // 修正提案
   suggestion String? @db.Text
 
-  review Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  review    Review           @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  feedbacks ReviewFeedback[]
 
   createdAt DateTime @default(now())
 
@@ -286,4 +288,145 @@ enum PlanId {
   FREE
   PRO
   ENTERPRISE
+}
+
+// ========================================
+// Adaptive Learning Memory モデル
+// ========================================
+
+// ユーザーのフィードバック記録
+model ReviewFeedback {
+  id              String       @id @default(cuid())
+  reviewCommentId String
+  type            FeedbackType
+
+  // ユーザーのアクション
+  userAction UserAction // ACCEPTED, REJECTED, MODIFIED, IGNORED
+
+  // AI提案 vs ユーザーの最終コード
+  aiSuggestion    String? @db.Text
+  userCode        String? @db.Text // MODIFIED時のユーザーの最終コード
+  userExplanation String? @db.Text // ユーザーからの説明（任意）
+
+  // コンテキスト
+  filePath   String
+  language   String?
+  lineNumber Int
+
+  // メタデータ
+  createdAt   DateTime  @default(now())
+  processedAt DateTime? // ルール抽出が実行された日時
+
+  reviewComment  ReviewComment  @relation(fields: [reviewCommentId], references: [id], onDelete: Cascade)
+  extractedRules LearningRule[]
+
+  @@index([reviewCommentId])
+  @@index([processedAt])
+}
+
+// フィードバックから抽出された学習ルール
+model LearningRule {
+  id String @id @default(cuid())
+
+  // マルチテナント分離
+  installationId Int    // GitHub App installation ID
+  repositoryId   String? // リポジトリ固有ルール（null = 組織全体）
+
+  // ルール内容
+  ruleText String     @db.Text // 自然言語のルール記述
+  ruleType RuleType   // STYLE, PATTERN, NAMING, etc.
+  source   RuleSource // IMPLICIT, EXPLICIT, SPECIFICATION
+
+  // フィルタリング用メタデータ
+  language String? // typescript, python, etc.
+  category String? // security, performance, style
+
+  // 信頼度とライフサイクル
+  confidence Float     @default(0.8) // 0.0 - 1.0
+  usageCount Int       @default(0)   // 使用回数
+  lastUsedAt DateTime?               // 最後に使用された日時
+
+  // ベクトルストレージ参照
+  pineconeId String? @unique // PineconeのベクトルID
+
+  // ソース追跡
+  feedbackId String?
+  feedback   ReviewFeedback? @relation(fields: [feedbackId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([installationId])
+  @@index([repositoryId])
+  @@index([language])
+  @@index([confidence])
+}
+
+// 仕様書ドキュメント（OpenAPI, Markdownなど）
+model SpecificationDocument {
+  id           String @id @default(cuid())
+  repositoryId String
+
+  // ドキュメント情報
+  filePath     String      // リポジトリ内のパス
+  documentType SpecDocType // OPENAPI, MARKDOWN, ARCHITECTURE
+  title        String?
+
+  // コンテンツ追跡
+  contentHash   String   // 変更検出用ハッシュ
+  lastSyncedAt  DateTime
+  lastSyncedSha String   // Git commit SHA
+
+  // ベクトルストレージ
+  chunkCount Int @default(0)
+
+  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([repositoryId, filePath])
+  @@index([repositoryId])
+}
+
+// ========================================
+// Adaptive Learning Memory Enum
+// ========================================
+
+enum FeedbackType {
+  INLINE_COMMENT // インラインレビューコメントへのフィードバック
+  SUMMARY        // サマリーへのフィードバック
+  SUGGESTION     // コード提案へのフィードバック
+}
+
+enum UserAction {
+  ACCEPTED // ユーザーが提案をそのまま適用
+  REJECTED // ユーザーが明示的に拒否
+  MODIFIED // ユーザーが修正してから適用
+  IGNORED  // アクションなし（タイムアウト/クローズ）
+}
+
+enum RuleType {
+  STYLE        // コードスタイルの好み
+  PATTERN      // デザインパターンの好み
+  NAMING       // 命名規則
+  ARCHITECTURE // アーキテクチャルール
+  SECURITY     // セキュリティ要件
+  PERFORMANCE  // パフォーマンスガイドライン
+  TESTING      // テスト規約
+  OTHER        // その他
+}
+
+enum RuleSource {
+  IMPLICIT      // ユーザーの修正から推論
+  EXPLICIT      // ユーザーが明示的に指定
+  SPECIFICATION // 仕様書から抽出
+}
+
+enum SpecDocType {
+  OPENAPI      // OpenAPI/Swagger仕様
+  MARKDOWN     // Markdownドキュメント
+  ARCHITECTURE // アーキテクチャ決定記録 (ADR)
+  README       // READMEファイル
+  OTHER        // その他ドキュメント
 }

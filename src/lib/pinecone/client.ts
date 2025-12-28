@@ -1,6 +1,12 @@
 import { Pinecone, type RecordMetadata } from "@pinecone-database/pinecone";
-import type { VectorRecord, CodeChunkMetadata } from "./types";
-import { getNamespace } from "./types";
+import type {
+  VectorRecord,
+  CodeChunkMetadata,
+  RuleVectorRecord,
+  LearningRuleMetadata,
+  RuleSearchResult,
+} from "./types";
+import { getNamespace, getRulesNamespace } from "./types";
 
 // Pinecone クライアント（遅延初期化）
 let pinecone: Pinecone | null = null;
@@ -149,4 +155,182 @@ export async function getNamespaceStats(
   return {
     vectorCount: namespaceStats?.recordCount || 0,
   };
+}
+
+// ========================================
+// Learning Rules 操作
+// ========================================
+
+/**
+ * ルールベクトルをアップサート
+ */
+export async function upsertRuleVectors(
+  installationId: number,
+  vectors: RuleVectorRecord[]
+): Promise<void> {
+  if (vectors.length === 0) return;
+
+  const index = getIndex();
+  const namespace = getRulesNamespace(installationId);
+
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < vectors.length; i += BATCH_SIZE) {
+    const batch = vectors.slice(i, i + BATCH_SIZE).map((v) => ({
+      id: v.id,
+      values: v.values,
+      metadata: v.metadata as unknown as RecordMetadata,
+    }));
+    await index.namespace(namespace).upsert(batch);
+    console.log(
+      `[Pinecone] Upserted ${i + batch.length}/${vectors.length} rule vectors to ${namespace}`
+    );
+  }
+}
+
+/**
+ * 関連するルールを検索
+ */
+export async function queryRules(
+  installationId: number,
+  queryVector: number[],
+  options: {
+    topK?: number;
+    language?: string;
+    repositoryId?: string;
+    minConfidence?: number;
+  } = {}
+): Promise<RuleSearchResult[]> {
+  const { topK = 10, language, repositoryId, minConfidence = 0.5 } = options;
+
+  const index = getIndex();
+  const namespace = getRulesNamespace(installationId);
+
+  // フィルター構築
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const filter: Record<string, any> = {
+    confidence: { $gte: minConfidence },
+  };
+
+  if (language) {
+    filter.language = { $eq: language };
+  }
+
+  // 組織全体のルールとリポジトリ固有のルールの両方を含める
+  if (repositoryId) {
+    filter.$or = [
+      { repositoryId: { $eq: repositoryId } },
+      { repositoryId: { $exists: false } },
+    ];
+  }
+
+  try {
+    const result = await index.namespace(namespace).query({
+      vector: queryVector,
+      topK,
+      includeMetadata: true,
+      filter,
+    });
+
+    return (result.matches || []).map((match) => ({
+      id: match.id,
+      score: match.score || 0,
+      metadata: match.metadata as unknown as LearningRuleMetadata,
+    }));
+  } catch (error) {
+    // Namespace doesn't exist yet - no rules stored
+    if (error instanceof Error && error.message.includes("404")) {
+      console.log(`[Pinecone] Rules namespace ${namespace} doesn't exist yet`);
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * 単一のルールベクトルを削除
+ */
+export async function deleteRuleVector(
+  installationId: number,
+  vectorId: string
+): Promise<void> {
+  const index = getIndex();
+  const namespace = getRulesNamespace(installationId);
+
+  try {
+    await index.namespace(namespace).deleteOne(vectorId);
+    console.log(`[Pinecone] Deleted rule vector: ${vectorId}`);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("404")) {
+      console.log(`[Pinecone] Rule vector ${vectorId} not found, skipping delete`);
+      return;
+    }
+    throw error;
+  }
+}
+
+/**
+ * 複数のルールベクトルを削除
+ */
+export async function deleteRuleVectors(
+  installationId: number,
+  vectorIds: string[]
+): Promise<void> {
+  if (vectorIds.length === 0) return;
+
+  const index = getIndex();
+  const namespace = getRulesNamespace(installationId);
+
+  try {
+    await index.namespace(namespace).deleteMany(vectorIds);
+    console.log(`[Pinecone] Deleted ${vectorIds.length} rule vectors`);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("404")) {
+      console.log(`[Pinecone] Rules namespace doesn't exist yet, skipping delete`);
+      return;
+    }
+    throw error;
+  }
+}
+
+/**
+ * ルール Namespace の統計情報を取得
+ */
+export async function getRulesNamespaceStats(
+  installationId: number
+): Promise<{ vectorCount: number }> {
+  const index = getIndex();
+  const namespace = getRulesNamespace(installationId);
+
+  const stats = await index.describeIndexStats();
+  const namespaceStats = stats.namespaces?.[namespace];
+
+  return {
+    vectorCount: namespaceStats?.recordCount || 0,
+  };
+}
+
+/**
+ * 低信頼度のルールを削除（メンテナンス用）
+ */
+export async function deleteLowConfidenceRules(
+  installationId: number,
+  minConfidence: number = 0.3
+): Promise<void> {
+  const index = getIndex();
+  const namespace = getRulesNamespace(installationId);
+
+  try {
+    await index.namespace(namespace).deleteMany({
+      confidence: { $lt: minConfidence },
+    });
+    console.log(
+      `[Pinecone] Deleted rules with confidence < ${minConfidence} in ${namespace}`
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("404")) {
+      console.log(`[Pinecone] Rules namespace doesn't exist yet, skipping cleanup`);
+      return;
+    }
+    throw error;
+  }
 }

@@ -11,8 +11,10 @@ import { filterReviewableFiles, detectLanguage } from "@/lib/diff/filter";
 import { generateReview, formatForGitHubReview } from "@/lib/ai/review";
 import { reconstructDiff } from "@/lib/diff/parser";
 import { generateQueriesFromDiff, searchWithMultipleQueries } from "@/lib/rag/search";
-import { buildSimpleContext } from "@/lib/rag/context-builder";
+import { buildSimpleContext, buildEnhancedContext } from "@/lib/rag/context-builder";
 import { getNamespaceStats } from "@/lib/pinecone/client";
+import { searchRelevantRules, buildRulesContext } from "@/lib/rag/rules-search";
+import { searchRelevantSpecs, buildSpecsContext } from "@/lib/rag/specs-search";
 
 /**
  * PR Opened イベントを処理してフルレビューを実行
@@ -208,6 +210,70 @@ export const reviewPR = inngest.createFunction(
     );
     const ragContext = ragContextResult ?? undefined;
 
+    // Step 4b: 学習ルールコンテキストを取得
+    const rulesContextResult = await step.run(
+      "fetch-rules-context",
+      async (): Promise<string | null> => {
+        try {
+          // ルールを検索
+          const { rules, totalFound } = await searchRelevantRules({
+            installationId,
+            repositoryId: dbSetup.repositoryId,
+            files: parsedData.files,
+            topK: 10,
+          });
+
+          if (totalFound === 0) {
+            console.log("[Inngest] No learned rules found for this context");
+            return null;
+          }
+
+          console.log(`[Inngest] Found ${totalFound} relevant learned rules`);
+
+          // ルールをコンテキスト文字列に変換
+          return buildRulesContext(rules);
+        } catch (error) {
+          console.warn("[Inngest] Rules context fetch failed:", error);
+          return null;
+        }
+      }
+    );
+    const rulesContext = rulesContextResult ?? undefined;
+
+    // Step 4c: 仕様書コンテキストを取得
+    const specsContextResult = await step.run(
+      "fetch-specs-context",
+      async (): Promise<string | null> => {
+        try {
+          const { specs, totalFound } = await searchRelevantSpecs({
+            owner,
+            repo,
+            files: parsedData.files,
+            topK: 5,
+          });
+
+          if (totalFound === 0) {
+            console.log("[Inngest] No specification documents found");
+            return null;
+          }
+
+          console.log(`[Inngest] Found ${totalFound} relevant specification chunks`);
+          return buildSpecsContext(specs);
+        } catch (error) {
+          console.warn("[Inngest] Specs context fetch failed:", error);
+          return null;
+        }
+      }
+    );
+    const specsContext = specsContextResult ?? undefined;
+
+    // 拡張コンテキストを構築（ルール + 仕様書 + コードコンテキスト）
+    const enhancedContext = buildEnhancedContext({
+      codeContext: ragContext,
+      rulesContext: rulesContext,
+      specsContext: specsContext,
+    });
+
     // Step 5: AIレビューを生成
     const aiReview = await step.run("generate-review", async () => {
       if (parsedData.files.length === 0) {
@@ -220,7 +286,7 @@ export const reviewPR = inngest.createFunction(
         prBody: prData.body,
         files: parsedData.files,
         diffContent: parsedData.filteredDiff,
-        ragContext,
+        ragContext: enhancedContext || undefined,
       });
 
       console.log(
@@ -372,6 +438,7 @@ export const reviewPRIncremental = inngest.createFunction(
           repository: { owner, name: repo },
           number: prNumber,
         },
+        include: { repository: true },
       });
 
       if (!pullRequest) {
@@ -394,6 +461,7 @@ export const reviewPRIncremental = inngest.createFunction(
       });
 
       return {
+        repositoryId: pullRequest.repositoryId,
         pullRequestId: pullRequest.id,
         reviewId: review.id,
       };
@@ -439,6 +507,65 @@ export const reviewPRIncremental = inngest.createFunction(
       };
     });
 
+    // Step 4b: 学習ルールコンテキストを取得
+    const rulesContextResult = await step.run(
+      "fetch-rules-context",
+      async (): Promise<string | null> => {
+        try {
+          const { rules, totalFound } = await searchRelevantRules({
+            installationId,
+            repositoryId: dbSetup.repositoryId,
+            files: parsedData.files,
+            topK: 10,
+          });
+
+          if (totalFound === 0) {
+            console.log("[Inngest] No learned rules found for incremental context");
+            return null;
+          }
+
+          console.log(`[Inngest] Found ${totalFound} relevant learned rules for incremental review`);
+          return buildRulesContext(rules);
+        } catch (error) {
+          console.warn("[Inngest] Rules context fetch failed (incremental):", error);
+          return null;
+        }
+      }
+    );
+    const rulesContext = rulesContextResult ?? undefined;
+
+    // Step 4c: 仕様書コンテキストを取得
+    const specsContextResult = await step.run(
+      "fetch-specs-context",
+      async (): Promise<string | null> => {
+        try {
+          const { specs, totalFound } = await searchRelevantSpecs({
+            owner,
+            repo,
+            files: parsedData.files,
+            topK: 5,
+          });
+
+          if (totalFound === 0) {
+            return null;
+          }
+
+          console.log(`[Inngest] Found ${totalFound} relevant specification chunks for incremental review`);
+          return buildSpecsContext(specs);
+        } catch (error) {
+          console.warn("[Inngest] Specs context fetch failed (incremental):", error);
+          return null;
+        }
+      }
+    );
+    const specsContext = specsContextResult ?? undefined;
+
+    // 拡張コンテキストを構築
+    const enhancedContext = buildEnhancedContext({
+      rulesContext: rulesContext,
+      specsContext: specsContext,
+    });
+
     // Step 5: AIレビューを生成
     const aiReview = await step.run("generate-incremental-review", async () => {
       if (parsedData.files.length === 0) {
@@ -454,6 +581,7 @@ export const reviewPRIncremental = inngest.createFunction(
         )}) からの増分更新です。\n\n${prData.body}`,
         files: parsedData.files,
         diffContent: parsedData.filteredDiff,
+        ragContext: enhancedContext || undefined,
       });
 
       return review;

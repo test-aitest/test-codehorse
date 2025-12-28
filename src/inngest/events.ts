@@ -83,4 +83,108 @@ export type Events = {
       inReplyToId?: number;
     };
   };
+
+  // ========================================
+  // Adaptive Learning Memory Events
+  // ========================================
+
+  // ユーザーがレビューコメントにリアクションした
+  "feedback/reaction.added": {
+    data: {
+      installationId: number;
+      owner: string;
+      repo: string;
+      prNumber: number;
+      commentId: number; // GitHub上のコメントID
+      reaction: "thumbs_up" | "thumbs_down" | "confused" | "heart" | "rocket" | "eyes";
+      userId: string;
+    };
+  };
+
+  // ユーザーがGitHubの提案機能を適用した
+  "feedback/suggestion.applied": {
+    data: {
+      installationId: number;
+      owner: string;
+      repo: string;
+      prNumber: number;
+      reviewCommentId: string; // DBのReviewCommentのID
+      commitSha: string;
+    };
+  };
+
+  // ユーザーが明示的なフィードバックコマンドを送信した
+  "feedback/explicit.received": {
+    data: {
+      installationId: number;
+      owner: string;
+      repo: string;
+      prNumber: number;
+      commentBody: string;
+      contextCommentId?: number; // 関連するコメントID
+      userId: string;
+    };
+  };
+
+  // フィードバックからルールを抽出
+  "learning/rule.extract": {
+    data: {
+      feedbackId: string;
+      installationId: number;
+      repositoryId: string;
+    };
+  };
+
+  // 複数のフィードバックをバッチ処理
+  "learning/rules.batch-extract": {
+    data: {
+      installationId: number;
+      feedbackIds: string[];
+    };
+  };
+
+  // ルールの信頼度を更新
+  "learning/rule.update-confidence": {
+    data: {
+      ruleId: string;
+      delta: number; // 正の値で強化、負の値で弱化
+    };
+  };
+
+  // 低信頼度ルールの定期クリーンアップ
+  "learning/rules.cleanup": {
+    data: {
+      installationId: number;
+      minConfidence?: number; // デフォルト 0.3
+    };
+  };
+
+  // ========================================
+  // Specification Document Events
+  // ========================================
+
+  // 仕様書のインデックスをリクエスト
+  "specs/index.requested": {
+    data: {
+      repositoryId: string;
+      installationId: number;
+      specificPaths?: string[]; // 特定のファイルのみをインデックスする場合
+    };
+  };
+
+  // PRで変更された仕様書の増分インデックス
+  "specs/index.incremental": {
+    data: {
+      repositoryId: string;
+      installationId: number;
+      changedFiles: string[];
+    };
+  };
+
+  // 仕様書インデックスを削除
+  "specs/index.delete": {
+    data: {
+      repositoryId: string;
+    };
+  };
 };
