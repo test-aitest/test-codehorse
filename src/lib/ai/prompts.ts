@@ -3,6 +3,8 @@ import {
   formatInlineCommentWithSuggestion,
   isValidSuggestion,
 } from "../github/suggestion-formatter";
+import type { AdaptiveContext } from "./memory/types";
+import { buildAdaptivePromptSection, hasValidContext } from "./memory/context-builder";
 
 // システムプロンプト
 export const REVIEW_SYSTEM_PROMPT = `あなたは経験豊富なシニアソフトウェアエンジニアで、コードレビューのエキスパートです。
@@ -33,8 +35,9 @@ export function buildReviewPrompt(params: {
   files: ParsedFile[];
   diffContent: string;
   ragContext?: string;
+  adaptiveContext?: AdaptiveContext;
 }): string {
-  const { prTitle, prBody, files, diffContent, ragContext } = params;
+  const { prTitle, prBody, files, diffContent, ragContext, adaptiveContext } = params;
 
   const fileList = files
     .map((f) => `- ${f.newPath} (${f.type}: +${f.additions}/-${f.deletions})`)
@@ -68,6 +71,13 @@ ${ragContext}
 `;
   }
 
+  // 適応コンテキストを追加
+  if (adaptiveContext && hasValidContext(adaptiveContext)) {
+    prompt += `
+${buildAdaptivePromptSection(adaptiveContext)}
+`;
+  }
+
   prompt += `
 ## タスク
 
@@ -78,7 +88,25 @@ ${ragContext}
 3. **comments**: 具体的なインラインコメント（問題点や改善提案）
 4. **diagram**: （必要な場合のみ）アーキテクチャの変更を示すMermaidダイアグラム
 
-コメントには必ず正確な行番号を指定してください。行番号はDiff内の新しいファイルの行番号を使用してください。`;
+コメントには必ず正確な行番号を指定してください。行番号はDiff内の新しいファイルの行番号を使用してください。
+
+## 関連性スコアリング
+
+各コメントには関連性スコア（relevanceScore）を1-10で付けてください：
+
+### スコア基準
+- **9-10 (HIGH)**: 必ず対応すべき重要な問題。セキュリティ、バグ、クラッシュの可能性
+- **7-8 (MEDIUM)**: 対応を推奨する問題。パフォーマンス、設計改善、ベストプラクティス
+- **5-6 (LOW)**: 参考程度の指摘。可読性向上、軽微な改善
+- **1-4**: 非常に軽微またはPRの目的に関係ない指摘
+
+### 評価観点
+1. **PRの目的との関連性**: この指摘はPRの変更内容に直接関係するか？
+2. **影響度**: 問題を放置した場合の影響は大きいか？
+3. **実行可能性**: 提案は具体的で実装可能か？
+4. **正確性**: コードの解釈は正しいか？
+
+低スコア（5未満）のコメントはフィルタリングされる可能性があります。`;
 
   return prompt;
 }
@@ -157,8 +185,10 @@ export function formatInlineComment(params: {
   body: string;
   severity: string;
   suggestion?: string;
+  relevanceScore?: number;
+  relevanceCategory?: string;
 }): string {
-  const { body, severity, suggestion } = params;
+  const { body, severity, suggestion, relevanceScore, relevanceCategory } = params;
 
   // 有効なsuggestionがある場合のみsuggestion blockを使用
   const validSuggestion = isValidSuggestion(suggestion) ? suggestion : undefined;
@@ -167,5 +197,7 @@ export function formatInlineComment(params: {
     body,
     severity,
     suggestion: validSuggestion,
+    relevanceScore,
+    relevanceCategory,
   });
 }

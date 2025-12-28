@@ -12,6 +12,11 @@ import {
 } from "@/lib/ai/chat";
 import { searchRelatedCode } from "@/lib/rag/search";
 import { buildSimpleContext } from "@/lib/rag/context-builder";
+import {
+  buildAdaptiveContext,
+  saveConversation,
+  deserializeAdaptiveContext,
+} from "@/lib/ai/memory";
 
 // ボット名（環境変数から取得可能）
 const BOT_NAME = process.env.GITHUB_APP_SLUG || "codehorse";
@@ -67,6 +72,9 @@ export const chatResponseJob = inngest.createFunction(
           repository: { owner, name: repo },
           number: prNumber,
         },
+        include: {
+          repository: { select: { id: true } },
+        },
       });
 
       // スレッドのコンテキストを取得
@@ -94,6 +102,8 @@ export const chatResponseJob = inngest.createFunction(
         prTitle: pr?.title,
         prNumber,
         threadContext,
+        pullRequestId: pr?.id,
+        repositoryId: pr?.repository?.id,
       };
     });
 
@@ -122,7 +132,46 @@ export const chatResponseJob = inngest.createFunction(
       }
     });
 
-    // Step 4: AI応答を生成
+    // Step 4: 適応コンテキストを構築
+    const adaptiveContext = await step.run("build-adaptive-context", async () => {
+      if (!context.pullRequestId || !context.repositoryId) {
+        return undefined;
+      }
+
+      try {
+        return await buildAdaptiveContext({
+          pullRequestId: context.pullRequestId,
+          repositoryId: context.repositoryId,
+          maxConversationEntries: 20,
+          includeLearningInsights: true,
+        });
+      } catch (error) {
+        console.warn("[Inngest] Failed to build adaptive context:", error);
+        return undefined;
+      }
+    });
+
+    // Step 5: ユーザーの質問を会話履歴に保存
+    await step.run("save-user-question", async () => {
+      if (!context.pullRequestId) return;
+
+      try {
+        const userMessage = extractMessageContent(commentBody, BOT_NAME);
+        await saveConversation({
+          pullRequestId: context.pullRequestId,
+          type: "CHAT_QUESTION",
+          role: "USER",
+          content: userMessage,
+          metadata: {
+            commentId: commentId.toString(),
+          },
+        });
+      } catch (error) {
+        console.warn("[Inngest] Failed to save user question:", error);
+      }
+    });
+
+    // Step 6: AI応答を生成
     const response = await step.run("generate-response", async () => {
       const userMessage = extractMessageContent(commentBody, BOT_NAME);
 
@@ -131,10 +180,11 @@ export const chatResponseJob = inngest.createFunction(
         prNumber: context.prNumber,
         previousMessages: context.threadContext,
         ragContext: ragContext ?? undefined,
+        adaptiveContext: deserializeAdaptiveContext(adaptiveContext),
       });
     });
 
-    // Step 5: GitHubに返信を投稿
+    // Step 7: GitHubに返信を投稿
     await step.run("post-response", async () => {
       // 応答にボット署名を追加
       const responseBody = `${response.response}\n\n---\n*🐴 CodeHorse AI Assistant*`;
@@ -155,6 +205,26 @@ export const chatResponseJob = inngest.createFunction(
       }
 
       console.log("[Inngest] Response posted");
+    });
+
+    // Step 8: AI応答を会話履歴に保存
+    await step.run("save-ai-response", async () => {
+      if (!context.pullRequestId) return;
+
+      try {
+        await saveConversation({
+          pullRequestId: context.pullRequestId,
+          type: "CHAT_RESPONSE",
+          role: "AI",
+          content: response.response,
+          metadata: {
+            commentId: commentId.toString(),
+          },
+        });
+        console.log("[Inngest] Saved chat conversation to history");
+      } catch (error) {
+        console.warn("[Inngest] Failed to save AI response:", error);
+      }
     });
 
     return {

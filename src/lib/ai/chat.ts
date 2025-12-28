@@ -1,6 +1,8 @@
 import { generateText } from "ai";
 import { MODEL_CONFIG } from "./client";
 import { countTokens } from "../tokenizer";
+import type { AdaptiveContext } from "./memory/types";
+import { buildAdaptivePromptSection, hasValidContext } from "./memory/context-builder";
 
 // チャット応答用のシステムプロンプト
 const CHAT_SYSTEM_PROMPT = `あなたはCodeHorseのAIアシスタントです。
@@ -35,6 +37,9 @@ export interface ChatContext {
   // コードコンテキスト
   codeContext?: string;
   ragContext?: string;
+
+  // 適応コンテキスト
+  adaptiveContext?: AdaptiveContext;
 }
 
 export interface ChatResponse {
@@ -49,7 +54,7 @@ export async function generateChatResponse(
   userMessage: string,
   context: ChatContext
 ): Promise<ChatResponse> {
-  const { prTitle, prNumber, previousMessages, codeContext, ragContext } = context;
+  const { prTitle, prNumber, previousMessages, codeContext, ragContext, adaptiveContext } = context;
 
   // プロンプトを構築
   let prompt = "";
@@ -77,6 +82,12 @@ export async function generateChatResponse(
   // RAGコンテキスト
   if (ragContext) {
     prompt += `## リポジトリからの関連情報\n${ragContext}\n\n`;
+  }
+
+  // 適応コンテキスト（学習済みの傾向）
+  if (adaptiveContext && hasValidContext(adaptiveContext)) {
+    prompt += buildAdaptivePromptSection(adaptiveContext);
+    prompt += "\n\n";
   }
 
   // ユーザーメッセージ

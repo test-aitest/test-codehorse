@@ -7,11 +7,24 @@ import {
 } from "@/lib/github/client";
 import { parseDiff, reconstructDiff } from "@/lib/diff/parser";
 import { filterReviewableFiles, detectLanguage } from "@/lib/diff/filter";
+import {
+  extendDiffContext,
+  createGitHubFileProvider,
+  isContextExtensionEnabled,
+  getContextOptionsFromEnv,
+  clearContextCache,
+} from "@/lib/diff/context-extender";
 import { generateReview, formatForGitHubReview } from "@/lib/ai/review";
 import { submitReviewWithFallback, type ReviewComment } from "@/lib/github/review-submitter";
 import { generateQueriesFromDiff, searchWithMultipleQueries } from "@/lib/rag/search";
 import { buildSimpleContext } from "@/lib/rag/context-builder";
 import { getNamespaceStats } from "@/lib/pinecone/client";
+import {
+  buildAdaptiveContext,
+  saveConversation,
+  saveConversationBatch,
+  deserializeAdaptiveContext,
+} from "@/lib/ai/memory";
 
 /**
  * PR Opened イベントを処理してフルレビューを実行
@@ -157,6 +170,45 @@ export const reviewPR = inngest.createFunction(
       };
     });
 
+    // Step 3.5: Diffコンテキストを拡張（有効な場合）
+    const extendedDiffContent = await step.run("extend-diff-context", async () => {
+      if (!isContextExtensionEnabled()) {
+        console.log("[Inngest] Context extension disabled, using original diff");
+        return parsedData.filteredDiff;
+      }
+
+      if (parsedData.files.length === 0) {
+        return parsedData.filteredDiff;
+      }
+
+      try {
+        const octokit = await getInstallationOctokit(installationId);
+        const fileProvider = createGitHubFileProvider(octokit, owner, repo);
+        const options = getContextOptionsFromEnv();
+
+        console.log(`[Inngest] Extending diff context with ${options.contextLines} lines`);
+
+        const result = await extendDiffContext(
+          parsedData.files,
+          headSha,
+          fileProvider,
+          options
+        );
+
+        console.log(
+          `[Inngest] Context extension: ${result.stats.filesProcessed} processed, ${result.stats.totalContextLinesAdded} lines added`
+        );
+
+        // キャッシュをクリア（メモリ解放）
+        clearContextCache();
+
+        return result.extendedDiff;
+      } catch (error) {
+        console.warn("[Inngest] Context extension failed, using original diff:", error);
+        return parsedData.filteredDiff;
+      }
+    });
+
     // Step 4: RAGコンテキストを取得
     const ragContextResult = await step.run(
       "fetch-rag-context",
@@ -208,7 +260,22 @@ export const reviewPR = inngest.createFunction(
     );
     const ragContext = ragContextResult ?? undefined;
 
-    // Step 5: AIレビューを生成
+    // Step 5: 適応コンテキストを構築
+    const adaptiveContext = await step.run("build-adaptive-context", async () => {
+      try {
+        return await buildAdaptiveContext({
+          pullRequestId: dbSetup.pullRequestId,
+          repositoryId: dbSetup.repositoryId,
+          maxConversationEntries: 20,
+          includeLearningInsights: true,
+        });
+      } catch (error) {
+        console.warn("[Inngest] Failed to build adaptive context:", error);
+        return undefined;
+      }
+    });
+
+    // Step 6: AIレビューを生成
     const aiReview = await step.run("generate-review", async () => {
       if (parsedData.files.length === 0) {
         console.log("[Inngest] No reviewable files, skipping AI review");
@@ -219,8 +286,9 @@ export const reviewPR = inngest.createFunction(
         prTitle: prData.title,
         prBody: prData.body,
         files: parsedData.files,
-        diffContent: parsedData.filteredDiff,
+        diffContent: extendedDiffContent, // 拡張されたDiffを使用
         ragContext,
+        adaptiveContext: deserializeAdaptiveContext(adaptiveContext),
       });
 
       console.log(
@@ -230,7 +298,7 @@ export const reviewPR = inngest.createFunction(
       return review;
     });
 
-    // Step 6: レビュー結果をDBに保存
+    // Step 7: レビュー結果をDBに保存
     await step.run("save-review", async () => {
       if (!aiReview) {
         await prisma.review.update({
@@ -274,7 +342,48 @@ export const reviewPR = inngest.createFunction(
       }
     });
 
-    // Step 7: GitHubにコメントを投稿（422エラーハンドリング付き）
+    // Step 8: 会話履歴を保存
+    await step.run("save-conversation-history", async () => {
+      if (!aiReview) return;
+
+      try {
+        // レビューサマリーを保存
+        await saveConversation({
+          pullRequestId: dbSetup.pullRequestId,
+          type: "REVIEW",
+          role: "AI",
+          content: aiReview.result.summary,
+          metadata: {
+            reviewId: dbSetup.reviewId,
+          },
+        });
+
+        // インラインコメントを一括保存
+        if (aiReview.inlineComments.length > 0) {
+          await saveConversationBatch(
+            aiReview.inlineComments.map((comment) => ({
+              pullRequestId: dbSetup.pullRequestId,
+              type: "REVIEW" as const,
+              role: "AI" as const,
+              content: comment.body,
+              metadata: {
+                filePath: comment.path,
+                lineNumber: comment.endLine,
+                endLine: comment.endLine,
+                severity: comment.severity,
+                reviewId: dbSetup.reviewId,
+              },
+            }))
+          );
+        }
+
+        console.log(`[Inngest] Saved ${aiReview.inlineComments.length + 1} conversation entries`);
+      } catch (error) {
+        console.warn("[Inngest] Failed to save conversation history:", error);
+      }
+    });
+
+    // Step 9: GitHubにコメントを投稿（422エラーハンドリング付き）
     await step.run("post-review", async () => {
       if (!aiReview) {
         console.log("[Inngest] No review to post");
@@ -448,7 +557,64 @@ export const reviewPRIncremental = inngest.createFunction(
       };
     });
 
-    // Step 5: AIレビューを生成
+    // Step 4.5: Diffコンテキストを拡張（有効な場合）
+    const extendedDiffContent = await step.run("extend-diff-context", async () => {
+      if (!isContextExtensionEnabled()) {
+        return parsedData.filteredDiff;
+      }
+
+      if (parsedData.files.length === 0) {
+        return parsedData.filteredDiff;
+      }
+
+      try {
+        const octokit = await getInstallationOctokit(installationId);
+        const fileProvider = createGitHubFileProvider(octokit, owner, repo);
+        const options = getContextOptionsFromEnv();
+
+        const result = await extendDiffContext(
+          parsedData.files,
+          afterSha,
+          fileProvider,
+          options
+        );
+
+        console.log(
+          `[Inngest] Incremental context extension: ${result.stats.filesProcessed} processed`
+        );
+
+        clearContextCache();
+        return result.extendedDiff;
+      } catch (error) {
+        console.warn("[Inngest] Context extension failed:", error);
+        return parsedData.filteredDiff;
+      }
+    });
+
+    // Step 5: 適応コンテキストを構築
+    const adaptiveContext = await step.run("build-adaptive-context", async () => {
+      try {
+        // リポジトリIDを取得
+        const pr = await prisma.pullRequest.findUnique({
+          where: { id: dbSetup.pullRequestId },
+          select: { repositoryId: true },
+        });
+
+        if (!pr) return undefined;
+
+        return await buildAdaptiveContext({
+          pullRequestId: dbSetup.pullRequestId,
+          repositoryId: pr.repositoryId,
+          maxConversationEntries: 20,
+          includeLearningInsights: true,
+        });
+      } catch (error) {
+        console.warn("[Inngest] Failed to build adaptive context:", error);
+        return undefined;
+      }
+    });
+
+    // Step 6: AIレビューを生成
     const aiReview = await step.run("generate-incremental-review", async () => {
       if (parsedData.files.length === 0) {
         return null;
@@ -462,13 +628,14 @@ export const reviewPRIncremental = inngest.createFunction(
           7
         )}) からの増分更新です。\n\n${prData.body}`,
         files: parsedData.files,
-        diffContent: parsedData.filteredDiff,
+        diffContent: extendedDiffContent, // 拡張されたDiffを使用
+        adaptiveContext: deserializeAdaptiveContext(adaptiveContext),
       });
 
       return review;
     });
 
-    // Step 6: 結果をDBに保存
+    // Step 7: 結果をDBに保存
     await step.run("save-review", async () => {
       if (!aiReview) {
         await prisma.review.update({
@@ -509,7 +676,48 @@ export const reviewPRIncremental = inngest.createFunction(
       }
     });
 
-    // Step 7: GitHubにコメントを投稿（422エラーハンドリング付き）
+    // Step 8: 会話履歴を保存
+    await step.run("save-conversation-history", async () => {
+      if (!aiReview) return;
+
+      try {
+        // レビューサマリーを保存
+        await saveConversation({
+          pullRequestId: dbSetup.pullRequestId,
+          type: "REVIEW",
+          role: "AI",
+          content: aiReview.result.summary,
+          metadata: {
+            reviewId: dbSetup.reviewId,
+          },
+        });
+
+        // インラインコメントを一括保存
+        if (aiReview.inlineComments.length > 0) {
+          await saveConversationBatch(
+            aiReview.inlineComments.map((comment) => ({
+              pullRequestId: dbSetup.pullRequestId,
+              type: "REVIEW" as const,
+              role: "AI" as const,
+              content: comment.body,
+              metadata: {
+                filePath: comment.path,
+                lineNumber: comment.endLine,
+                endLine: comment.endLine,
+                severity: comment.severity,
+                reviewId: dbSetup.reviewId,
+              },
+            }))
+          );
+        }
+
+        console.log(`[Inngest] Saved ${aiReview.inlineComments.length + 1} conversation entries (incremental)`);
+      } catch (error) {
+        console.warn("[Inngest] Failed to save conversation history:", error);
+      }
+    });
+
+    // Step 9: GitHubにコメントを投稿（422エラーハンドリング付き）
     await step.run("post-incremental-review", async () => {
       if (!aiReview) return;
 

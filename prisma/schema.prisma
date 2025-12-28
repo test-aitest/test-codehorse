@@ -27,7 +27,6 @@ model User {
   accounts     Account[]
   sessions     Session[]
   repositories UserRepository[]
-  subscription Subscription?
 }
 
 model Account {
@@ -101,8 +100,10 @@ model Repository {
   config Json?
 
   // リレーション
-  pullRequests PullRequest[]
-  users        UserRepository[]
+  pullRequests     PullRequest[]
+  users            UserRepository[]
+  userFeedbacks    UserFeedback[]
+  learningInsights LearningInsight[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -137,8 +138,9 @@ model PullRequest {
   lastReviewedSha String? // 最後にレビューしたコミット
 
   // リレーション
-  repository Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  reviews    Review[]
+  repository           Repository            @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  reviews              Review[]
+  conversationHistory  ConversationHistory[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -211,31 +213,94 @@ model ReviewExportToken {
 }
 
 // ========================================
-// 課金・サブスクリプション (Polar.sh)
+// 会話履歴・適応学習システム
 // ========================================
 
-model Subscription {
-  id                  String @id @default(cuid())
-  userId              String @unique
-  polarSubscriptionId String? @unique
-  polarCustomerId     String?
+// PR内の会話履歴を記録
+model ConversationHistory {
+  id            String      @id @default(cuid())
+  pullRequestId String
+  pullRequest   PullRequest @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
 
-  status SubStatus @default(FREE)
-  planId PlanId    @default(FREE)
+  type    ConversationType // レビュー、コメント、フィードバック
+  role    ConversationRole // AI または ユーザー
+  content String           @db.Text
 
-  // 使用量追跡
-  reviewsThisMonth Int      @default(0)
-  lastResetAt      DateTime @default(now())
-
-  currentPeriodStart DateTime?
-  currentPeriodEnd   DateTime?
-  canceledAt         DateTime?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // メタデータ（ファイルパス、行番号など）
+  metadata Json?
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  @@index([pullRequestId])
+  @@index([pullRequestId, createdAt])
 }
+
+// ユーザーからのフィードバックを記録
+model UserFeedback {
+  id           String     @id @default(cuid())
+  repositoryId String
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  commentId       String? // 元のレビューコメントID（ReviewComment.id）
+  feedbackType    FeedbackType
+  userComment     String?  @db.Text // ユーザーの補足コメント
+  originalContent String   @db.Text // 元のAIコメント内容
+
+  createdAt DateTime @default(now())
+
+  @@index([repositoryId])
+  @@index([repositoryId, feedbackType])
+}
+
+// リポジトリごとの学習インサイト
+model LearningInsight {
+  id           String     @id @default(cuid())
+  repositoryId String
+  repository   Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  category    InsightCategory
+  insight     String          @db.Text // 学習した傾向の説明
+  confidence  Float // 信頼度 0.0 - 1.0
+  sampleCount Int // この傾向を導き出したサンプル数
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([repositoryId, category])
+  @@index([repositoryId])
+}
+
+// 会話タイプ
+enum ConversationType {
+  REVIEW          // AIレビューコメント
+  USER_COMMENT    // ユーザーの返信
+  CHAT_RESPONSE   // チャットでの応答
+  CHAT_QUESTION   // チャットでの質問
+}
+
+// 会話の役割
+enum ConversationRole {
+  AI
+  USER
+}
+
+// フィードバックタイプ
+enum FeedbackType {
+  HELPFUL      // 役に立った
+  NOT_HELPFUL  // 役に立たなかった
+  INCORRECT    // 間違っている
+  TOO_STRICT   // 厳しすぎる
+  TOO_LENIENT  // 緩すぎる
+}
+
+// 学習インサイトのカテゴリ
+enum InsightCategory {
+  STYLE         // コードスタイルの傾向
+  SEVERITY      // 厳しさレベルの傾向
+  FOCUS_AREA    // 重視する観点
+  LANGUAGE      // 言語・フレームワーク特有の傾向
+  IGNORE_PATTERN // 無視すべきパターン
+}
+
 
 // ========================================
 // Enum定義
@@ -272,18 +337,4 @@ enum RepositoryPermission {
   ADMIN
   WRITE
   READ
-}
-
-enum SubStatus {
-  FREE
-  ACTIVE
-  PAST_DUE
-  CANCELED
-  INCOMPLETE
-}
-
-enum PlanId {
-  FREE
-  PRO
-  ENTERPRISE
 }

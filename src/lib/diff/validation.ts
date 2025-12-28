@@ -5,8 +5,67 @@ import { getHunkRanges } from "./parser";
 const ADJUSTMENT_TOLERANCE = 10;
 
 /**
+ * diff内で実際にコメント可能な行番号のセットを取得
+ * GitHubはdiff内で表示されている行にのみコメントを付けられる
+ */
+export function getCommentableLines(
+  filePath: string,
+  parsedDiff: ParsedDiff
+): Set<number> {
+  const commentableLines = new Set<number>();
+
+  const file = parsedDiff.files.find(
+    (f) => f.newPath === filePath || f.oldPath === filePath
+  );
+  if (!file) return commentableLines;
+
+  for (const hunk of file.hunks) {
+    for (const change of hunk.changes) {
+      // insert行とnormal行（コンテキスト行）はコメント可能
+      // delete行はnewLineNumberを持たないのでコメント不可
+      if (
+        change.newLineNumber !== undefined &&
+        (change.type === "insert" || change.type === "normal")
+      ) {
+        commentableLines.add(change.newLineNumber);
+      }
+    }
+  }
+
+  return commentableLines;
+}
+
+/**
+ * 指定行に最も近いコメント可能な行を見つける
+ */
+function findNearestCommentableLine(
+  targetLine: number,
+  commentableLines: Set<number>,
+  tolerance: number = ADJUSTMENT_TOLERANCE
+): number | undefined {
+  if (commentableLines.has(targetLine)) {
+    return targetLine;
+  }
+
+  // 許容範囲内で最も近い行を探す
+  for (let offset = 1; offset <= tolerance; offset++) {
+    if (commentableLines.has(targetLine + offset)) {
+      return targetLine + offset;
+    }
+    if (commentableLines.has(targetLine - offset)) {
+      return targetLine - offset;
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * コメント位置がPRのhunk内にあるか検証
  * pr-agentのvalidate_comments_inside_hunks()を参考
+ *
+ * 重要: GitHubはdiff内で実際に表示されている行にのみコメントを付けられる
+ * hunkの範囲内でも、削除された行やdiff外の行にはコメントできない
  */
 export function validateCommentPosition(
   filePath: string,
@@ -20,51 +79,72 @@ export function validateCommentPosition(
     return { valid: false, reason: "File not in diff" };
   }
 
-  // 行がいずれかのhunk内にあるかチェック
-  for (const range of ranges) {
-    if (line >= range.newStart && line <= range.newEnd) {
-      // 単一行コメント: 有効
-      if (!startLine || startLine === line) {
-        return { valid: true };
-      }
+  // 実際にコメント可能な行を取得
+  const commentableLines = getCommentableLines(filePath, parsedDiff);
 
-      // 複数行コメント: startLineもhunk内にあるかチェック
-      if (startLine >= range.newStart && startLine <= line) {
-        return { valid: true };
-      }
-
-      // startLineがhunk外の場合、hunk境界に調整
-      if (startLine < range.newStart) {
-        return {
-          valid: true,
-          adjustedStartLine: range.newStart,
-          reason: `Adjusted start_line from ${startLine} to ${range.newStart} (hunk boundary)`,
-        };
-      }
-    }
+  if (commentableLines.size === 0) {
+    return { valid: false, reason: "No commentable lines in diff" };
   }
 
-  // 許容範囲内で最も近いhunkの行に調整を試みる
-  for (const range of ranges) {
-    // lineがhunkの少し外にある場合
-    if (line >= range.newStart - ADJUSTMENT_TOLERANCE && line <= range.newEnd + ADJUSTMENT_TOLERANCE) {
-      const adjustedLine = Math.min(Math.max(line, range.newStart), range.newEnd);
+  // Step 1: 指定行がコメント可能かチェック
+  if (commentableLines.has(line)) {
+    // 単一行コメント
+    if (!startLine || startLine === line) {
+      return { valid: true };
+    }
 
-      let adjustedStartLine: number | undefined;
-      if (startLine !== undefined && startLine !== adjustedLine) {
-        adjustedStartLine = Math.min(Math.max(startLine, range.newStart), adjustedLine);
-      }
+    // 複数行コメント: startLineもコメント可能かチェック
+    if (commentableLines.has(startLine)) {
+      // startLineからlineまでの範囲が有効か確認
+      // 連続した範囲である必要はないが、両端が有効であれば許可
+      return { valid: true };
+    }
 
+    // startLineが無効な場合、最も近いコメント可能な行に調整
+    const adjustedStartLine = findNearestCommentableLine(startLine, commentableLines);
+    if (adjustedStartLine !== undefined && adjustedStartLine <= line) {
       return {
         valid: true,
-        adjustedLine,
         adjustedStartLine,
-        reason: `Adjusted line from ${line} to ${adjustedLine}`,
+        reason: `Adjusted start_line from ${startLine} to ${adjustedStartLine} (nearest commentable line)`,
       };
+    }
+
+    // startLineを調整できない場合、単一行コメントにダウングレード
+    return {
+      valid: true,
+      adjustedStartLine: line, // 単一行に変換
+      reason: `Could not find valid start_line, converted to single-line comment at ${line}`,
+    };
+  }
+
+  // Step 2: 行がコメント不可の場合、近くのコメント可能な行に調整
+  const adjustedLine = findNearestCommentableLine(line, commentableLines);
+
+  if (adjustedLine === undefined) {
+    // 許容範囲内にコメント可能な行がない
+    return {
+      valid: false,
+      reason: `Line ${line} is not commentable and no nearby commentable line found within ${ADJUSTMENT_TOLERANCE} lines`
+    };
+  }
+
+  // 調整後の行で検証
+  let adjustedStartLine: number | undefined;
+  if (startLine !== undefined && startLine !== adjustedLine) {
+    adjustedStartLine = findNearestCommentableLine(startLine, commentableLines);
+    if (adjustedStartLine === undefined || adjustedStartLine > adjustedLine) {
+      // startLineを調整できないか、line以降になる場合は単一行に変換
+      adjustedStartLine = adjustedLine;
     }
   }
 
-  return { valid: false, reason: `Line ${line} not in any hunk` };
+  return {
+    valid: true,
+    adjustedLine,
+    adjustedStartLine,
+    reason: `Adjusted line from ${line} to ${adjustedLine} (nearest commentable line)`,
+  };
 }
 
 /**
@@ -134,21 +214,6 @@ export function isCommentableLineInDiff(
   lineNumber: number,
   parsedDiff: ParsedDiff
 ): boolean {
-  const file = parsedDiff.files.find(
-    (f) => f.newPath === filePath || f.oldPath === filePath
-  );
-  if (!file) return false;
-
-  for (const hunk of file.hunks) {
-    for (const change of hunk.changes) {
-      if (
-        change.newLineNumber === lineNumber &&
-        (change.type === "insert" || change.type === "normal")
-      ) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+  const commentableLines = getCommentableLines(filePath, parsedDiff);
+  return commentableLines.has(lineNumber);
 }

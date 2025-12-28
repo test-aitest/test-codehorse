@@ -35,17 +35,48 @@ export function getSeverityEmoji(severity: string): string {
 }
 
 /**
+ * 関連性カテゴリに対応する絵文字を取得
+ */
+export function getRelevanceCategoryEmoji(category: string | undefined): string {
+  if (!category) return "";
+  const emojiMap: Record<string, string> = {
+    HIGH: "⬆️",
+    MEDIUM: "➡️",
+    LOW: "⬇️",
+  };
+  return emojiMap[category] || "";
+}
+
+/**
+ * 関連性スコアをフォーマット
+ */
+export function formatRelevanceScore(
+  score: number | undefined,
+  category: string | undefined
+): string {
+  if (score === undefined) return "";
+
+  const categoryEmoji = getRelevanceCategoryEmoji(category);
+  const categoryLabel = category ? ` ${category}` : "";
+
+  return ` | ${categoryEmoji} Relevance: ${score}/10${categoryLabel}`;
+}
+
+/**
  * インラインコメントをGitHub形式に変換
  */
 export function formatInlineCommentWithSuggestion(params: {
   body: string;
   severity: string;
   suggestion?: string;
+  relevanceScore?: number;
+  relevanceCategory?: string;
 }): string {
-  const { body, severity, suggestion } = params;
+  const { body, severity, suggestion, relevanceScore, relevanceCategory } = params;
   const emoji = getSeverityEmoji(severity);
+  const relevanceInfo = formatRelevanceScore(relevanceScore, relevanceCategory);
 
-  let comment = `${emoji} **[${severity}]**\n\n${body}`;
+  let comment = `${emoji} **[${severity}]**${relevanceInfo}\n\n${body}`;
 
   if (suggestion) {
     comment += `\n\n${formatSuggestionBlock(suggestion)}`;
