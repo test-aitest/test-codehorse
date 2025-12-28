@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { getInstallationOctokit, getRepositoryTree, getFileContent } from "@/lib/github/client";
+import { getRepositoryTree, getFileContent } from "@/lib/github/client";
 import { chunkFile, createIndexableFile } from "./chunker";
 import { upsertVectors, deleteNamespace, deleteByFilePath } from "@/lib/pinecone/client";
 import { generateEmbeddings, formatChunkForEmbedding } from "@/lib/pinecone/embeddings";

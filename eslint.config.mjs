@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Handler package dist
+    "packages/codehorse-handler/dist/**",
   ]),
 ]);
 

@@ -98,7 +98,6 @@ export function shouldReviewFile(filePath: string): boolean {
   }
 
   // 拡張子チェック
-  const extension = filePath.substring(filePath.lastIndexOf("."));
   const fileName = filePath.split("/").pop() || "";
 
   return REVIEWABLE_EXTENSIONS.some(

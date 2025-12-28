@@ -32,7 +32,8 @@ const COLUMNS = {
   RELATED_CODE: 6,
 };
 
-const HEADER_ROW = 1; // ヘッダーは1行目
+// ヘッダーは1行目（将来の使用のために定義を保持）
+// const HEADER_ROW = 1;
 
 /**
  * シート名からシートIDを取得

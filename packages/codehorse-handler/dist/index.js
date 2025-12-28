@@ -174,11 +174,19 @@ async function applyReview(params) {
         console.log(chalk_1.default.cyan("━".repeat(60)) + "\n");
         const claudeOutput = await (0, claude_invoker_js_1.invokeClaudeCode)(prompt, repoPath);
         console.log("\n" + chalk_1.default.cyan("━".repeat(60)));
+        // デバッグ出力
+        console.log(chalk_1.default.yellow(`\n[Debug] sheetsInfo: ${sheetsInfo ? 'found' : 'not found'}`));
+        console.log(chalk_1.default.yellow(`[Debug] hasGoogleCredentials: ${(0, google_auth_js_1.hasGoogleCredentials)()}`));
+        console.log(chalk_1.default.yellow(`[Debug] claudeOutput length: ${claudeOutput ? claudeOutput.length : 0} chars`));
         // Parse and apply test case updates if Google Sheets is configured
         if (sheetsInfo && (0, google_auth_js_1.hasGoogleCredentials)() && claudeOutput) {
+            // デバッグ: パターン検索
+            const hasPattern = /\[\s*\{\s*"action"\s*:\s*"(?:add|update|delete)"/.test(claudeOutput);
+            console.log(chalk_1.default.yellow(`[Debug] Contains test-updates pattern: ${hasPattern}`));
             const spinner2 = (0, ora_1.default)("Checking for test case updates...").start();
             try {
                 const testUpdates = (0, test_case_parser_js_1.parseTestUpdatesFromClaudeOutput)(claudeOutput);
+                console.log(chalk_1.default.yellow(`[Debug] Parsed updates count: ${testUpdates.length}`));
                 if (testUpdates.length > 0) {
                     spinner2.text = `Applying ${testUpdates.length} test case updates to Google Sheets...`;
                     const result = await (0, sheets_client_js_1.applyTestCaseUpdates)(sheetsInfo, TEST_CASE_SHEET_NAME, testUpdates);

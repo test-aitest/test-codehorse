@@ -67,6 +67,7 @@ export function AddRepositoryDialog() {
     if (open && installations.length === 0) {
       loadInstallations();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const loadInstallations = async () => {

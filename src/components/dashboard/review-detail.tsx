@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { ja } from "date-fns/locale";
@@ -93,7 +93,9 @@ function getSeverityBadge(severity: string) {
     case "CRITICAL":
       return <Badge variant="destructive">Critical</Badge>;
     case "IMPORTANT":
-      return <Badge className="bg-yellow-500 hover:bg-yellow-600">Important</Badge>;
+      return (
+        <Badge className="bg-yellow-500 hover:bg-yellow-600">Important</Badge>
+      );
     case "INFO":
       return <Badge variant="secondary">Info</Badge>;
     case "NITPICK":
@@ -136,12 +138,13 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
   const walkthroughItems = parseWalkthrough(review.walkthrough);
 
   // Load saved folder path from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem(FOLDER_PATH_KEY);
-    if (saved) {
-      setFolderPath(saved);
-    }
-  }, []);
+  const savedFolderPath =
+    typeof window !== "undefined"
+      ? localStorage.getItem(FOLDER_PATH_KEY)
+      : null;
+  if (savedFolderPath && folderPath !== savedFolderPath) {
+    setFolderPath(savedFolderPath);
+  }
 
   // Handle "Apply with Claude Code" button click - open dialog
   const handleApplyWithClaude = () => {
@@ -166,12 +169,17 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
     startTransition(async () => {
       const result = await generateReviewExportToken(review.id);
       if (result.success && result.token) {
-        const apiUrl = typeof window !== "undefined"
-          ? window.location.origin
-          : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+        const apiUrl =
+          typeof window !== "undefined"
+            ? window.location.origin
+            : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
         // Generate the URL and command
-        const url = `codehorse://apply?reviewId=${review.id}&token=${result.token}&apiUrl=${encodeURIComponent(apiUrl)}&folderPath=${encodeURIComponent(folderPath)}`;
+        const url = `codehorse://apply?reviewId=${review.id}&token=${
+          result.token
+        }&apiUrl=${encodeURIComponent(apiUrl)}&folderPath=${encodeURIComponent(
+          folderPath
+        )}`;
         const command = `cd "${folderPath}" && codehorse-handler "${url}"`;
         setGeneratedUrl(url);
         setGeneratedCommand(command);
@@ -202,10 +210,16 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
     ? (review.tokenCount / 1_000_000) * COST_PER_MILLION_TOKENS
     : 0;
 
-  const criticalCount = review.comments.filter((c) => c.severity === "CRITICAL").length;
-  const importantCount = review.comments.filter((c) => c.severity === "IMPORTANT").length;
+  const criticalCount = review.comments.filter(
+    (c) => c.severity === "CRITICAL"
+  ).length;
+  const importantCount = review.comments.filter(
+    (c) => c.severity === "IMPORTANT"
+  ).length;
   const infoCount = review.comments.filter((c) => c.severity === "INFO").length;
-  const nitpickCount = review.comments.filter((c) => c.severity === "NITPICK").length;
+  const nitpickCount = review.comments.filter(
+    (c) => c.severity === "NITPICK"
+  ).length;
 
   const prUrl = `${review.pullRequest.repository.htmlUrl}/pull/${review.pullRequest.number}`;
 
@@ -233,12 +247,15 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
                   })}
                 </span>
                 <span>•</span>
-                <span className="font-mono text-xs">{review.commitSha.slice(0, 7)}</span>
+                <span className="font-mono text-xs">
+                  {review.commitSha.slice(0, 7)}
+                </span>
               </div>
               <div className="flex items-center gap-4 text-sm">
                 <span className="flex items-center gap-1">
                   <Coins className="h-3 w-3" />
-                  {review.tokenCount?.toLocaleString() || 0} tokens (${cost.toFixed(4)})
+                  {review.tokenCount?.toLocaleString() || 0} tokens ($
+                  {cost.toFixed(4)})
                 </span>
               </div>
             </div>
@@ -328,7 +345,9 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
             </CardHeader>
             <CardContent>
               {walkthroughItems.length === 0 ? (
-                <p className="text-muted-foreground">No walkthrough available.</p>
+                <p className="text-muted-foreground">
+                  No walkthrough available.
+                </p>
               ) : (
                 <div className="space-y-4">
                   {walkthroughItems.map((item, index) => (
@@ -412,14 +431,15 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
 
       {/* Apply with Claude Code Dialog */}
       <Dialog open={showApplyDialog} onOpenChange={setShowApplyDialog}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-150">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Terminal className="h-5 w-5" />
               Apply with Claude Code
             </DialogTitle>
             <DialogDescription>
-              Enter the local folder path where your repository is cloned, then run the generated command in your terminal.
+              Enter the local folder path where your repository is cloned, then
+              run the generated command in your terminal.
             </DialogDescription>
           </DialogHeader>
 
@@ -434,7 +454,9 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
                 id="folderPath"
                 placeholder="/path/to/your/repository"
                 value={folderPath}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFolderPath(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setFolderPath(e.target.value)
+                }
               />
               <p className="text-xs text-muted-foreground">
                 Example: /Users/username/projects/my-repo
@@ -486,7 +508,8 @@ export function ReviewDetail({ review }: ReviewDetailProps) {
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  This command will launch Claude Code with the review content. The token expires in 5 minutes.
+                  This command will launch Claude Code with the review content.
+                  The token expires in 5 minutes.
                 </p>
               </div>
             )}

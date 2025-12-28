@@ -2,10 +2,39 @@ import gitdiffParser from "gitdiff-parser";
 import type { ParsedDiff, ParsedFile, ParsedHunk, ParsedChange } from "./types";
 
 /**
+ * gitdiff-parserの型定義を拡張
+ * ライブラリは行番号やadditions/deletionsを返すことがあるが、型定義に含まれていない
+ * 将来的にライブラリのバージョンアップで挙動が変わる可能性があるため注意
+ */
+interface GitDiffChange {
+  type: "insert" | "delete" | "normal";
+  content: string;
+  oldLineNumber?: number;
+  newLineNumber?: number;
+}
+
+interface GitDiffFile {
+  oldPath: string;
+  newPath: string;
+  type: string;
+  hunks: Array<{
+    oldStart: number;
+    oldLines: number;
+    newStart: number;
+    newLines: number;
+    content: string;
+    changes: GitDiffChange[];
+  }>;
+  additions?: number;
+  deletions?: number;
+}
+
+/**
  * 生のDiffテキストをパースして構造化
  */
 export function parseDiff(rawDiff: string): ParsedDiff {
-  const files = gitdiffParser.parse(rawDiff);
+  // gitdiff-parserの戻り値を拡張型にキャスト
+  const files = gitdiffParser.parse(rawDiff) as unknown as GitDiffFile[];
 
   let totalAdditions = 0;
   let totalDeletions = 0;
@@ -18,27 +47,27 @@ export function parseDiff(rawDiff: string): ParsedDiff {
       let currentNewLine = hunk.newStart;
       let currentOldLine = hunk.oldStart;
 
-      const changes: ParsedChange[] = hunk.changes.map((change) => {
+      const changes: ParsedChange[] = hunk.changes.map((change: GitDiffChange) => {
         diffPosition++;
 
         let lineNumber: number;
         if (change.type === "delete") {
           // 削除行：旧ファイルの行番号を使用
-          lineNumber = (change as any).oldLineNumber || currentOldLine;
+          lineNumber = change.oldLineNumber ?? currentOldLine;
           currentOldLine++;
         } else if (change.type === "insert") {
           // 追加行：新ファイルの行番号を使用
-          lineNumber = (change as any).newLineNumber || currentNewLine;
+          lineNumber = change.newLineNumber ?? currentNewLine;
           currentNewLine++;
         } else {
           // normal（変更なし）：両方の行番号をインクリメント
-          lineNumber = (change as any).newLineNumber || currentNewLine;
+          lineNumber = change.newLineNumber ?? currentNewLine;
           currentNewLine++;
           currentOldLine++;
         }
 
         return {
-          type: change.type as "insert" | "delete" | "normal",
+          type: change.type,
           content: change.content,
           lineNumber,
           diffPosition,
@@ -55,8 +84,8 @@ export function parseDiff(rawDiff: string): ParsedDiff {
       };
     });
 
-    const additions = (file as any).additions || 0;
-    const deletions = (file as any).deletions || 0;
+    const additions = file.additions ?? 0;
+    const deletions = file.deletions ?? 0;
     totalAdditions += additions;
     totalDeletions += deletions;
 

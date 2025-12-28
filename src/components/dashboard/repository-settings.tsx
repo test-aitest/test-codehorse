@@ -39,7 +39,6 @@ export function RepositorySettings({ repository }: RepositorySettingsProps) {
       </div>
 
       <YamlEditor
-        repositoryId={repository.id}
         initialConfig={initialYaml}
         onSave={handleSave}
       />

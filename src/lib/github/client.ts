@@ -74,10 +74,11 @@ export async function rateLimitedRequest<T>(fn: () => Promise<T>): Promise<T> {
     pRetry(async () => {
       try {
         return await fn();
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const err = error as { status?: number; response?: { headers?: { "retry-after"?: string } } };
         // 403 Abuse Detection または 429 Rate Limit
-        if (error.status === 403 || error.status === 429) {
-          const retryAfter = error.response?.headers?.["retry-after"];
+        if (err.status === 403 || err.status === 429) {
+          const retryAfter = err.response?.headers?.["retry-after"];
           if (retryAfter) {
             const waitMs = parseInt(retryAfter, 10) * 1000;
             console.log(`[GitHub API] Rate limited, waiting ${waitMs}ms`);
@@ -87,12 +88,12 @@ export async function rateLimitedRequest<T>(fn: () => Promise<T>): Promise<T> {
         }
 
         // 5xx エラーも再試行
-        if (error.status >= 500) {
+        if (err.status && err.status >= 500) {
           throw error;
         }
 
         // その他は即座に失敗（4xxエラー等）
-        throw new AbortError(error);
+        throw new AbortError(error as Error);
       }
     }, RETRY_OPTIONS)
   );
@@ -143,15 +144,41 @@ export async function getPullRequestDiff(
         mediaType: { format: "diff" },
       });
       return response.data as unknown as string;
-    } catch (error: any) {
+    } catch (error: unknown) {
       // 300ファイル以上の場合、listFiles APIにフォールバック
-      if (error.message?.includes("too_large") || error.message?.includes("exceeded the maximum")) {
+      // GitHub APIは大きなdiffに対して以下のエラーを返す可能性がある:
+      // - ステータスコード 422 (Unprocessable Entity) - diffが大きすぎる場合
+      // - ステータスコード 406 (Not Acceptable) - リクエスト形式が受け入れられない場合
+      // - エラーメッセージに "too_large" や "exceeded" が含まれる場合
+      const err = error as { status?: number; message?: string };
+      const isDiffTooLargeError =
+        err.status === 422 ||
+        err.status === 406 ||
+        err.message?.includes("too_large") ||
+        err.message?.includes("exceeded the maximum") ||
+        err.message?.includes("diff is taking too long");
+
+      if (isDiffTooLargeError) {
         console.log("[GitHub] Diff too large, falling back to listFiles API with pagination");
         return getPullRequestDiffFromFiles(octokit, owner, repo, prNumber);
       }
       throw error;
     }
   });
+}
+
+/**
+ * ファイル名をDiff形式用にエスケープする
+ * 特殊文字（空白、タブ、引用符など）を含むファイル名を適切に処理
+ */
+function escapeFilenameForDiff(filename: string): string {
+  // 空白やタブを含む場合は引用符で囲む
+  if (/[\s\t"\\]/.test(filename)) {
+    // バックスラッシュと引用符をエスケープ
+    const escaped = filename.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    return `"${escaped}"`;
+  }
+  return filename;
 }
 
 /**
@@ -172,6 +199,8 @@ async function getPullRequestDiffFromFiles(
   }> = [];
 
   // ページネーションで全ファイルを取得
+  // perPage: GitHub APIの最大値は100。これ以上の値を設定してもAPI側で100に制限される
+  // 注意: GitHubにはレート制限があるため、大量のファイルがある場合は複数リクエストが発生する
   let page = 1;
   const perPage = 100;
 
@@ -192,17 +221,22 @@ async function getPullRequestDiffFromFiles(
     page++;
   }
 
-  console.log(`[GitHub] Retrieved ${allFiles.length} files via listFiles API`);
+  // デバッグログ: ファイル数が多い場合のみ出力（10ファイル以上）
+  if (allFiles.length >= 10) {
+    console.log(`[GitHub] Retrieved ${allFiles.length} files via listFiles API`);
+  }
 
   // Unified Diff形式で結合
   const diffParts: string[] = [];
 
   for (const file of allFiles) {
     if (file.patch) {
+      // 特殊文字を含むファイル名をエスケープ
+      const escapedFilename = escapeFilenameForDiff(file.filename);
       // 標準的なUnified Diff形式のヘッダーを追加
-      const header = `diff --git a/${file.filename} b/${file.filename}
---- a/${file.filename}
-+++ b/${file.filename}`;
+      const header = `diff --git a/${escapedFilename} b/${escapedFilename}
+--- a/${escapedFilename}
++++ b/${escapedFilename}`;
       diffParts.push(`${header}\n${file.patch}`);
     }
   }
@@ -278,8 +312,9 @@ export async function getFileContent(
         return Buffer.from(response.data.content, "base64").toString("utf-8");
       }
       return null;
-    } catch (error: any) {
-      if (error.status === 404) return null;
+    } catch (error: unknown) {
+      const err = error as { status?: number };
+      if (err.status === 404) return null;
       throw error;
     }
   });

@@ -290,7 +290,12 @@ async function handleInstallation(payload: InstallationPayload) {
   }
 }
 
-async function handleInstallationRepositories(payload: any) {
+async function handleInstallationRepositories(payload: {
+  action: string;
+  repositories_added?: Array<{ id: number; full_name: string }>;
+  repositories_removed?: Array<{ id: number; full_name: string }>;
+  installation?: { id: number };
+}) {
   const { action, repositories_added, repositories_removed, installation } =
     payload;
 
@@ -301,6 +306,12 @@ async function handleInstallationRepositories(payload: any) {
     installationId: installation?.id,
   });
 
+  // installationが必須
+  if (!installation) {
+    console.warn("[Webhook] No installation in payload, skipping");
+    return;
+  }
+
   // 追加されたリポジトリをインデキシング
   if (repositories_added && repositories_added.length > 0) {
     for (const repo of repositories_added) {
@@ -308,8 +319,8 @@ async function handleInstallationRepositories(payload: any) {
         name: "github/repository.index",
         data: {
           installationId: installation.id,
-          owner: installation.account.login,
-          repo: repo.name,
+          owner: repo.full_name.split("/")[0],
+          repo: repo.full_name.split("/")[1],
           fullName: repo.full_name,
         },
       });
@@ -324,8 +335,8 @@ async function handleInstallationRepositories(payload: any) {
         name: "github/repository.delete-index",
         data: {
           installationId: installation.id,
-          owner: installation.account.login,
-          repo: repo.name,
+          owner: repo.full_name.split("/")[0],
+          repo: repo.full_name.split("/")[1],
           fullName: repo.full_name,
         },
       });

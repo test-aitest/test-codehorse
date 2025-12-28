@@ -3,8 +3,6 @@ import { countTokens } from "../tokenizer";
 
 // チャンクの最大トークン数
 const MAX_CHUNK_TOKENS = 2000;
-// オーバーラップ行数（コンテキスト維持用）
-const OVERLAP_LINES = 5;
 
 /**
  * 汎用的なチャンカー（AST解析を使わない言語用）

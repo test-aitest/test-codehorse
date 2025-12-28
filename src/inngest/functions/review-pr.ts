@@ -297,11 +297,12 @@ export const reviewPR = inngest.createFunction(
           event: githubReview.event,
         });
         console.log("[Inngest] Posted review to GitHub successfully");
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const err = error as { message?: string; status?: number; response?: { data?: unknown } };
         console.error("[Inngest] Failed to post review:", {
-          message: error.message,
-          status: error.status,
-          response: error.response?.data,
+          message: err.message,
+          status: err.status,
+          response: err.response?.data,
         });
         throw error;
       }
@@ -531,11 +532,12 @@ ${githubReview.body}`;
           event: githubReview.event,
         });
         console.log("[Inngest] Posted incremental review to GitHub successfully");
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const err = error as { message?: string; status?: number; response?: { data?: unknown } };
         console.error("[Inngest] Failed to post incremental review:", {
-          message: error.message,
-          status: error.status,
-          response: error.response?.data,
+          message: err.message,
+          status: err.status,
+          response: err.response?.data,
         });
         throw error;
       }

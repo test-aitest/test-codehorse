@@ -1,7 +1,6 @@
 import { inngest } from "../client";
 import { prisma } from "@/lib/prisma";
 import {
-  getInstallationOctokit,
   createReviewCommentReply,
   createIssueComment,
   getReviewCommentThread,
@@ -71,7 +70,7 @@ export const chatResponseJob = inngest.createFunction(
       });
 
       // スレッドのコンテキストを取得
-      let threadContext: Array<{ author: string; body: string; isBot: boolean }> = [];
+      const threadContext: Array<{ author: string; body: string; isBot: boolean }> = [];
 
       if (inReplyToId) {
         try {
@@ -137,8 +136,6 @@ export const chatResponseJob = inngest.createFunction(
 
     // Step 5: GitHubに返信を投稿
     await step.run("post-response", async () => {
-      const octokit = await getInstallationOctokit(installationId);
-
       // 応答にボット署名を追加
       const responseBody = `${response.response}\n\n---\n*🐴 CodeHorse AI Assistant*`;
 

@@ -373,11 +373,11 @@ function getMethodSignature(method: MethodDeclaration): string {
  * 変数に代入された関数のシグネチャを取得
  */
 function getVariableFunctionSignature(decl: Node): string | undefined {
-  const init = (decl as any).getInitializer?.();
+  const init = (decl as { getInitializer?: () => Node | undefined }).getInitializer?.();
   if (!init) return undefined;
 
   if (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) {
-    const params = init.getParameters().map((p: any) => p.getText()).join(", ");
+    const params = init.getParameters().map((p: { getText: () => string }) => p.getText()).join(", ");
     const returnType = init.getReturnType()?.getText() || "unknown";
     return `(${params}) => ${returnType}`;
   }

@@ -1,12 +1,24 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { parse, stringify } from "yaml";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { parse } from "yaml";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckCircle2, XCircle, Loader2, FileCode, RotateCcw } from "lucide-react";
+import {
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  FileCode,
+  RotateCcw,
+} from "lucide-react";
 
 // デフォルトの設定テンプレート
 const DEFAULT_CONFIG = `# CodeHorse Configuration
@@ -50,7 +62,6 @@ ignore:
 `;
 
 interface YamlEditorProps {
-  repositoryId: string;
   initialConfig: string | null;
   onSave: (config: string) => Promise<{ success: boolean; error?: string }>;
 }
@@ -77,10 +88,14 @@ function validateYaml(content: string): ValidationResult {
   }
 }
 
-export function YamlEditor({ repositoryId, initialConfig, onSave }: YamlEditorProps) {
+export function YamlEditor({ initialConfig, onSave }: YamlEditorProps) {
   const [content, setContent] = useState(initialConfig || DEFAULT_CONFIG);
-  const [originalContent, setOriginalContent] = useState(initialConfig || DEFAULT_CONFIG);
-  const [validation, setValidation] = useState<ValidationResult>({ isValid: true });
+  const [originalContent, setOriginalContent] = useState(
+    initialConfig || DEFAULT_CONFIG
+  );
+  const [validation, setValidation] = useState<ValidationResult>({
+    isValid: true,
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -160,13 +175,17 @@ export function YamlEditor({ repositoryId, initialConfig, onSave }: YamlEditorPr
           <Textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            className="font-mono text-sm min-h-[400px] resize-y"
+            className="font-mono text-sm min-h-100 resize-y"
             placeholder="Enter YAML configuration..."
           />
           {!validation.isValid && validation.error && (
             <div className="mt-2 p-3 rounded-md bg-destructive/10 border border-destructive/50">
-              <p className="text-sm text-destructive font-medium">Validation Error</p>
-              <p className="text-sm text-destructive/80 mt-1">{validation.error}</p>
+              <p className="text-sm text-destructive font-medium">
+                Validation Error
+              </p>
+              <p className="text-sm text-destructive/80 mt-1">
+                {validation.error}
+              </p>
             </div>
           )}
         </div>
@@ -179,7 +198,9 @@ export function YamlEditor({ repositoryId, initialConfig, onSave }: YamlEditorPr
         )}
         {saveSuccess && (
           <div className="p-3 rounded-md bg-green-500/10 border border-green-500/50">
-            <p className="text-sm text-green-600">Configuration saved successfully!</p>
+            <p className="text-sm text-green-600">
+              Configuration saved successfully!
+            </p>
           </div>
         )}
 
@@ -221,12 +242,25 @@ export function YamlEditor({ repositoryId, initialConfig, onSave }: YamlEditorPr
             <strong>Available settings:</strong>
           </p>
           <ul className="list-disc list-inside space-y-1 ml-2">
-            <li><code>review.language</code>: レビューコメントの言語（ja/en）</li>
-            <li><code>review.strictness</code>: レビューの厳格さ（strict/normal/lenient）</li>
-            <li><code>review.auto_review</code>: 自動レビューの有効/無効</li>
-            <li><code>review.incremental_review</code>: 増分レビューの有効/無効</li>
-            <li><code>ignore</code>: 無視するファイルパターン（glob形式）</li>
-            <li><code>focus</code>: レビュー対象を限定するパターン</li>
+            <li>
+              <code>review.language</code>: レビューコメントの言語（ja/en）
+            </li>
+            <li>
+              <code>review.strictness</code>:
+              レビューの厳格さ（strict/normal/lenient）
+            </li>
+            <li>
+              <code>review.auto_review</code>: 自動レビューの有効/無効
+            </li>
+            <li>
+              <code>review.incremental_review</code>: 増分レビューの有効/無効
+            </li>
+            <li>
+              <code>ignore</code>: 無視するファイルパターン（glob形式）
+            </li>
+            <li>
+              <code>focus</code>: レビュー対象を限定するパターン
+            </li>
           </ul>
         </div>
       </CardContent>

@@ -209,11 +209,21 @@ async function applyReview(params: ApplyParams): Promise<void> {
 
     console.log("\n" + chalk.cyan("━".repeat(60)));
 
+    // デバッグ出力
+    console.log(chalk.yellow(`\n[Debug] sheetsInfo: ${sheetsInfo ? 'found' : 'not found'}`));
+    console.log(chalk.yellow(`[Debug] hasGoogleCredentials: ${hasGoogleCredentials()}`));
+    console.log(chalk.yellow(`[Debug] claudeOutput length: ${claudeOutput ? claudeOutput.length : 0} chars`));
+
     // Parse and apply test case updates if Google Sheets is configured
     if (sheetsInfo && hasGoogleCredentials() && claudeOutput) {
+      // デバッグ: パターン検索
+      const hasPattern = /\[\s*\{\s*"action"\s*:\s*"(?:add|update|delete)"/.test(claudeOutput);
+      console.log(chalk.yellow(`[Debug] Contains test-updates pattern: ${hasPattern}`));
+
       const spinner2 = ora("Checking for test case updates...").start();
       try {
         const testUpdates = parseTestUpdatesFromClaudeOutput(claudeOutput);
+        console.log(chalk.yellow(`[Debug] Parsed updates count: ${testUpdates.length}`));
         if (testUpdates.length > 0) {
           spinner2.text = `Applying ${testUpdates.length} test case updates to Google Sheets...`;
           const result = await applyTestCaseUpdates(sheetsInfo, TEST_CASE_SHEET_NAME, testUpdates);
