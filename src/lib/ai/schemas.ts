@@ -4,6 +4,10 @@ import { z } from "zod";
 export const SeveritySchema = z.enum(["CRITICAL", "IMPORTANT", "INFO", "NITPICK"]);
 export type Severity = z.infer<typeof SeveritySchema>;
 
+// 関連性カテゴリ
+export const RelevanceCategorySchema = z.enum(["HIGH", "MEDIUM", "LOW"]);
+export type RelevanceCategory = z.infer<typeof RelevanceCategorySchema>;
+
 // インラインコメント
 export const InlineCommentSchema = z.object({
   path: z.string().describe("ファイルパス"),
@@ -14,8 +18,77 @@ export const InlineCommentSchema = z.object({
   suggestion: z.string().optional().describe("修正後のコード（行番号なし、純粋なコードのみ）"),
   suggestionStartLine: z.number().optional().describe("修正対象の開始行番号"),
   suggestionEndLine: z.number().optional().describe("修正対象の終了行番号"),
+  // 関連性スコアリング（Phase 4）
+  relevanceScore: z.number().min(1).max(10).optional().describe("提案の関連性スコア（1-10）"),
+  relevanceCategory: RelevanceCategorySchema.optional().describe("関連性カテゴリ（HIGH/MEDIUM/LOW）"),
 });
 export type InlineComment = z.infer<typeof InlineCommentSchema>;
+
+// ========================================
+// 関連性スコアリング ユーティリティ
+// ========================================
+
+// スコアリング設定
+export const RELEVANCE_CONFIG = {
+  // フィルタリング閾値
+  minScore: parseInt(process.env.AI_RELEVANCE_MIN_SCORE || "5", 10),
+  // カテゴリ閾値
+  highThreshold: 9,   // 9-10 = HIGH
+  mediumThreshold: 7, // 7-8 = MEDIUM
+  // LOW = 1-6
+} as const;
+
+/**
+ * スコアからカテゴリを導出
+ */
+export function getRelevanceCategory(score: number): RelevanceCategory {
+  if (score >= RELEVANCE_CONFIG.highThreshold) return "HIGH";
+  if (score >= RELEVANCE_CONFIG.mediumThreshold) return "MEDIUM";
+  return "LOW";
+}
+
+/**
+ * コメントにカテゴリを付与（スコアが存在する場合）
+ */
+export function enrichCommentWithCategory(comment: InlineComment): InlineComment {
+  if (comment.relevanceScore !== undefined && comment.relevanceCategory === undefined) {
+    return {
+      ...comment,
+      relevanceCategory: getRelevanceCategory(comment.relevanceScore),
+    };
+  }
+  return comment;
+}
+
+/**
+ * コメントをスコアでフィルタリング
+ */
+export function filterByRelevanceScore(
+  comments: InlineComment[],
+  minScore: number = RELEVANCE_CONFIG.minScore
+): {
+  accepted: InlineComment[];
+  filtered: InlineComment[];
+} {
+  const accepted: InlineComment[] = [];
+  const filtered: InlineComment[] = [];
+
+  for (const comment of comments) {
+    // スコアが無い場合は採用（後方互換性）
+    if (comment.relevanceScore === undefined) {
+      accepted.push(enrichCommentWithCategory(comment));
+      continue;
+    }
+
+    if (comment.relevanceScore >= minScore) {
+      accepted.push(enrichCommentWithCategory(comment));
+    } else {
+      filtered.push(enrichCommentWithCategory(comment));
+    }
+  }
+
+  return { accepted, filtered };
+}
 
 // ファイルサマリー
 export const FileSummarySchema = z.object({

@@ -1,6 +1,11 @@
 import { generateText } from "ai";
 import { MODEL_CONFIG } from "./client";
-import { ReviewResultSchema, type ReviewResult } from "./schemas";
+import {
+  ReviewResultSchema,
+  type ReviewResult,
+  filterByRelevanceScore,
+  RELEVANCE_CONFIG,
+} from "./schemas";
 import { REVIEW_SYSTEM_PROMPT, buildReviewPrompt, buildSummaryComment, formatInlineComment } from "./prompts";
 import type { ParsedFile } from "../diff/types";
 import { countTokens, truncateToTokenLimit } from "../tokenizer";
@@ -65,6 +70,7 @@ const JSON_OUTPUT_INSTRUCTION = `
       "startLine": 開始行番号（複数行の場合のみ、省略可）,
       "body": "コメント内容（Markdown形式）",
       "severity": "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
+      "relevanceScore": 関連性スコア（1-10の数値、必須）,
       "suggestion": "修正後のコード（行番号なし、純粋なコードのみ）",
       "suggestionStartLine": 修正開始行,
       "suggestionEndLine": 修正終了行
@@ -78,7 +84,14 @@ const JSON_OUTPUT_INSTRUCTION = `
 - suggestionフィールドには、置き換えるコードを記述してください
 - suggestionStartLine/suggestionEndLineで修正対象の行範囲を指定してください
 - 複数行の修正は改行で区切って記述してください
-- 行番号は含めず、コードのみを記述してください`;
+- 行番号は含めず、コードのみを記述してください
+
+### 関連性スコア（relevanceScore）について
+- 各コメントに1-10のスコアを必ず付けてください
+- 9-10: 必須の修正（セキュリティ、バグ）
+- 7-8: 推奨の修正（パフォーマンス、設計）
+- 5-6: 参考程度（可読性、軽微な改善）
+- 1-4: 非常に軽微または関係ない指摘`;
 
 /**
  * AIレビューを生成
@@ -179,6 +192,18 @@ export async function generateReview(params: GenerateReviewParams): Promise<Gene
     }
   }
 
+  // 関連性スコアでフィルタリング（Phase 4）
+  if (filteredComments.length > 0) {
+    const scoreFilter = filterByRelevanceScore(filteredComments, RELEVANCE_CONFIG.minScore);
+    const filteredByScore = filteredComments.length - scoreFilter.accepted.length;
+
+    if (filteredByScore > 0) {
+      console.log(`[AI Review] Relevance score filtered ${filteredByScore} comments (minScore: ${RELEVANCE_CONFIG.minScore})`);
+    }
+
+    filteredComments = scoreFilter.accepted;
+  }
+
   // サマリーコメント生成
   const criticalCount = filteredComments.filter((c) => c.severity === "CRITICAL").length;
   const importantCount = filteredComments.filter((c) => c.severity === "IMPORTANT").length;
@@ -207,6 +232,8 @@ export async function generateReview(params: GenerateReviewParams): Promise<Gene
       body: comment.body,
       severity: comment.severity,
       suggestion: comment.suggestion,
+      relevanceScore: comment.relevanceScore,
+      relevanceCategory: comment.relevanceCategory,
     }),
     severity: comment.severity,
   }));
