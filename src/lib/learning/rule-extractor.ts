@@ -59,12 +59,12 @@ export async function extractRulesFromFeedback(
       model: google("gemini-2.0-flash-exp"),
       prompt,
       temperature: 0.3, // 低温度で一貫性を重視
-      experimental_output: Output.object({
+      output: Output.object({
         schema: ExtractedRulesSchema,
       }),
     });
 
-    const output = result.experimental_output;
+    const output = result.output;
     if (!output) {
       return {
         rules: [],

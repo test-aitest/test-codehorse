@@ -1,4 +1,4 @@
-import { generateText } from "ai";
+import { generateText, Output } from "ai";
 import { MODEL_CONFIG } from "./client";
 import { ReviewResultSchema, type ReviewResult } from "./schemas";
 import {
@@ -95,59 +95,34 @@ export async function generateReview(
   const totalTokens = countTokens(REVIEW_SYSTEM_PROMPT + prompt);
   console.log(`[AI Review] Input tokens: ${totalTokens}`);
 
-  // AI生成
-  let text: string;
+  // AI生成（構造化出力を使用）
+  let result: ReviewResult;
   try {
     const response = await generateText({
       model: MODEL_CONFIG.review.model,
       system: REVIEW_SYSTEM_PROMPT,
       prompt,
       temperature: MODEL_CONFIG.review.temperature,
+      output: Output.object({
+        schema: ReviewResultSchema,
+      }),
     });
-    text = response.text;
-    console.log(`[AI Review] Response received, length: ${text.length}`);
-  } catch (apiError) {
-    console.error("[AI Review] API call failed:", apiError);
-    throw new Error(`AI API call failed: ${(apiError as Error).message}`);
-  }
 
-  // JSONをパース
-  let result: ReviewResult;
-  try {
-    // JSONブロックを抽出（マークダウンコードブロックから）
-    let jsonStr = text;
-
-    // ```json ... ``` または ``` ... ``` からJSON抽出
-    const codeBlockMatch = text.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-    if (codeBlockMatch && codeBlockMatch[1]) {
-      jsonStr = codeBlockMatch[1].trim();
-      console.log("[AI Review] Extracted JSON from code block");
-    } else {
-      // 生のJSONオブジェクトを検索
-      const jsonObjectMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonObjectMatch) {
-        jsonStr = jsonObjectMatch[0];
-        console.log("[AI Review] Extracted raw JSON object");
-      }
+    const output = response.output;
+    if (!output) {
+      throw new Error("No structured output received from AI");
     }
 
-    const parsed = JSON.parse(jsonStr);
-    result = ReviewResultSchema.parse(parsed);
-  } catch (error) {
-    console.error("[AI Review] Failed to parse response");
-    console.error(
-      "[AI Review] Response text (first 500 chars):",
-      text.slice(0, 500)
+    result = output;
+    console.log(
+      `[AI Review] Generated review with ${result.comments.length} comments`
     );
-    console.error(
-      "[AI Review] Response text (last 500 chars):",
-      text.slice(-500)
-    );
-    console.error("[AI Review] Parse error:", (error as Error).message);
+  } catch (apiError) {
+    console.error("[AI Review] API call failed:", apiError);
     // フォールバック: 最小限のレビュー結果を返す
     result = {
       summary: `レビュー生成中にエラーが発生しました: ${
-        (error as Error).message
+        (apiError as Error).message
       }`,
       walkthrough: files.map((f) => ({
         path: f.newPath,
