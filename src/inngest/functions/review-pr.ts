@@ -8,20 +8,11 @@ import {
 } from "@/lib/github/client";
 import { parseDiff } from "@/lib/diff/parser";
 import { filterReviewableFiles, detectLanguage } from "@/lib/diff/filter";
-import { convertCommentsToPositionBased } from "@/lib/diff/line-validator";
 import { generateReview, formatForGitHubReview } from "@/lib/ai/review";
 import { reconstructDiff } from "@/lib/diff/parser";
-import {
-  generateQueriesFromDiff,
-  searchWithMultipleQueries,
-} from "@/lib/rag/search";
-import {
-  buildSimpleContext,
-  buildEnhancedContext,
-} from "@/lib/rag/context-builder";
+import { generateQueriesFromDiff, searchWithMultipleQueries } from "@/lib/rag/search";
+import { buildSimpleContext } from "@/lib/rag/context-builder";
 import { getNamespaceStats } from "@/lib/pinecone/client";
-import { searchRelevantRules, buildRulesContext } from "@/lib/rag/rules-search";
-import { searchRelevantSpecs, buildSpecsContext } from "@/lib/rag/specs-search";
 
 /**
  * PR Opened イベントを処理してフルレビューを実行
@@ -188,10 +179,9 @@ export const reviewPR = inngest.createFunction(
           console.log(`[Inngest] Generated ${queries.length} RAG queries`);
 
           // 主要言語を検出
-          const primaryLanguage =
-            parsedData.files.length > 0
-              ? detectLanguage(parsedData.files[0].newPath)
-              : undefined;
+          const primaryLanguage = parsedData.files.length > 0
+            ? detectLanguage(parsedData.files[0].newPath)
+            : undefined;
 
           // 検索実行
           const searchResults = await searchWithMultipleQueries(
@@ -206,9 +196,7 @@ export const reviewPR = inngest.createFunction(
             return null;
           }
 
-          console.log(
-            `[Inngest] Found ${searchResults.length} relevant code chunks`
-          );
+          console.log(`[Inngest] Found ${searchResults.length} relevant code chunks`);
 
           // コンテキストを構築
           return buildSimpleContext(searchResults);
@@ -219,72 +207,6 @@ export const reviewPR = inngest.createFunction(
       }
     );
     const ragContext = ragContextResult ?? undefined;
-
-    // Step 4b: 学習ルールコンテキストを取得
-    const rulesContextResult = await step.run(
-      "fetch-rules-context",
-      async (): Promise<string | null> => {
-        try {
-          // ルールを検索
-          const { rules, totalFound } = await searchRelevantRules({
-            installationId,
-            repositoryId: dbSetup.repositoryId,
-            files: parsedData.files,
-            topK: 10,
-          });
-
-          if (totalFound === 0) {
-            console.log("[Inngest] No learned rules found for this context");
-            return null;
-          }
-
-          console.log(`[Inngest] Found ${totalFound} relevant learned rules`);
-
-          // ルールをコンテキスト文字列に変換
-          return buildRulesContext(rules);
-        } catch (error) {
-          console.warn("[Inngest] Rules context fetch failed:", error);
-          return null;
-        }
-      }
-    );
-    const rulesContext = rulesContextResult ?? undefined;
-
-    // Step 4c: 仕様書コンテキストを取得
-    const specsContextResult = await step.run(
-      "fetch-specs-context",
-      async (): Promise<string | null> => {
-        try {
-          const { specs, totalFound } = await searchRelevantSpecs({
-            owner,
-            repo,
-            files: parsedData.files,
-            topK: 5,
-          });
-
-          if (totalFound === 0) {
-            console.log("[Inngest] No specification documents found");
-            return null;
-          }
-
-          console.log(
-            `[Inngest] Found ${totalFound} relevant specification chunks`
-          );
-          return buildSpecsContext(specs);
-        } catch (error) {
-          console.warn("[Inngest] Specs context fetch failed:", error);
-          return null;
-        }
-      }
-    );
-    const specsContext = specsContextResult ?? undefined;
-
-    // 拡張コンテキストを構築（ルール + 仕様書 + コードコンテキスト）
-    const enhancedContext = buildEnhancedContext({
-      codeContext: ragContext,
-      rulesContext: rulesContext,
-      specsContext: specsContext,
-    });
 
     // Step 5: AIレビューを生成
     const aiReview = await step.run("generate-review", async () => {
@@ -298,7 +220,7 @@ export const reviewPR = inngest.createFunction(
         prBody: prData.body,
         files: parsedData.files,
         diffContent: parsedData.filteredDiff,
-        ragContext: enhancedContext || undefined,
+        ragContext,
       });
 
       console.log(
@@ -362,40 +284,25 @@ export const reviewPR = inngest.createFunction(
       const octokit = await getInstallationOctokit(installationId);
       const githubReview = formatForGitHubReview(aiReview);
 
-      // コメントの行番号をdiff positionに変換
-      const positionBasedComments = convertCommentsToPositionBased(
-        githubReview.comments,
-        parsedData.files
-      );
-
       console.log("[Inngest] Posting review with comments:", {
-        originalCount: githubReview.comments.length,
-        convertedCount: positionBasedComments.length,
-        comments: positionBasedComments.map((c) => ({
-          path: c.path,
-          position: c.position,
-        })),
+        commentsCount: githubReview.comments.length,
+        comments: githubReview.comments.map(c => ({ path: c.path, line: c.line, side: c.side })),
         event: githubReview.event,
       });
 
       try {
         await createPullRequestReview(octokit, owner, repo, prNumber, headSha, {
           body: githubReview.body,
-          comments: positionBasedComments,
+          comments: githubReview.comments,
           event: githubReview.event,
         });
         console.log("[Inngest] Posted review to GitHub successfully");
       } catch (error: unknown) {
-        const err = error as {
-          message?: string;
-          status?: number;
-          response?: { data?: unknown };
-        };
+        const err = error as { message?: string; status?: number; response?: { data?: unknown } };
         console.error("[Inngest] Failed to post review:", {
           message: err.message,
           status: err.status,
           response: err.response?.data,
-          comments: positionBasedComments,
         });
         throw error;
       }
@@ -465,7 +372,6 @@ export const reviewPRIncremental = inngest.createFunction(
           repository: { owner, name: repo },
           number: prNumber,
         },
-        include: { repository: true },
       });
 
       if (!pullRequest) {
@@ -488,7 +394,6 @@ export const reviewPRIncremental = inngest.createFunction(
       });
 
       return {
-        repositoryId: pullRequest.repositoryId,
         pullRequestId: pullRequest.id,
         reviewId: review.id,
       };
@@ -534,77 +439,6 @@ export const reviewPRIncremental = inngest.createFunction(
       };
     });
 
-    // Step 4b: 学習ルールコンテキストを取得
-    const rulesContextResult = await step.run(
-      "fetch-rules-context",
-      async (): Promise<string | null> => {
-        try {
-          const { rules, totalFound } = await searchRelevantRules({
-            installationId,
-            repositoryId: dbSetup.repositoryId,
-            files: parsedData.files,
-            topK: 10,
-          });
-
-          if (totalFound === 0) {
-            console.log(
-              "[Inngest] No learned rules found for incremental context"
-            );
-            return null;
-          }
-
-          console.log(
-            `[Inngest] Found ${totalFound} relevant learned rules for incremental review`
-          );
-          return buildRulesContext(rules);
-        } catch (error) {
-          console.warn(
-            "[Inngest] Rules context fetch failed (incremental):",
-            error
-          );
-          return null;
-        }
-      }
-    );
-    const rulesContext = rulesContextResult ?? undefined;
-
-    // Step 4c: 仕様書コンテキストを取得
-    const specsContextResult = await step.run(
-      "fetch-specs-context",
-      async (): Promise<string | null> => {
-        try {
-          const { specs, totalFound } = await searchRelevantSpecs({
-            owner,
-            repo,
-            files: parsedData.files,
-            topK: 5,
-          });
-
-          if (totalFound === 0) {
-            return null;
-          }
-
-          console.log(
-            `[Inngest] Found ${totalFound} relevant specification chunks for incremental review`
-          );
-          return buildSpecsContext(specs);
-        } catch (error) {
-          console.warn(
-            "[Inngest] Specs context fetch failed (incremental):",
-            error
-          );
-          return null;
-        }
-      }
-    );
-    const specsContext = specsContextResult ?? undefined;
-
-    // 拡張コンテキストを構築
-    const enhancedContext = buildEnhancedContext({
-      rulesContext: rulesContext,
-      specsContext: specsContext,
-    });
-
     // Step 5: AIレビューを生成
     const aiReview = await step.run("generate-incremental-review", async () => {
       if (parsedData.files.length === 0) {
@@ -620,7 +454,6 @@ export const reviewPRIncremental = inngest.createFunction(
         )}) からの増分更新です。\n\n${prData.body}`,
         files: parsedData.files,
         diffContent: parsedData.filteredDiff,
-        ragContext: enhancedContext || undefined,
       });
 
       return review;
@@ -674,12 +507,6 @@ export const reviewPRIncremental = inngest.createFunction(
       const octokit = await getInstallationOctokit(installationId);
       const githubReview = formatForGitHubReview(aiReview);
 
-      // コメントの行番号をdiff positionに変換
-      const positionBasedComments = convertCommentsToPositionBased(
-        githubReview.comments,
-        parsedData.files
-      );
-
       // 増分レビューであることを明記
       const incrementalBody = `## 🔄 Incremental Review
 
@@ -693,37 +520,20 @@ This review covers changes from \`${beforeSha.slice(
 ${githubReview.body}`;
 
       console.log("[Inngest] Posting incremental review with comments:", {
-        originalCount: githubReview.comments.length,
-        convertedCount: positionBasedComments.length,
-        comments: positionBasedComments.map((c) => ({
-          path: c.path,
-          position: c.position,
-        })),
+        commentsCount: githubReview.comments.length,
+        comments: githubReview.comments.map(c => ({ path: c.path, line: c.line, side: c.side })),
         event: githubReview.event,
       });
 
       try {
-        await createPullRequestReview(
-          octokit,
-          owner,
-          repo,
-          prNumber,
-          afterSha,
-          {
-            body: incrementalBody,
-            comments: positionBasedComments,
-            event: githubReview.event,
-          }
-        );
-        console.log(
-          "[Inngest] Posted incremental review to GitHub successfully"
-        );
+        await createPullRequestReview(octokit, owner, repo, prNumber, afterSha, {
+          body: incrementalBody,
+          comments: githubReview.comments,
+          event: githubReview.event,
+        });
+        console.log("[Inngest] Posted incremental review to GitHub successfully");
       } catch (error: unknown) {
-        const err = error as {
-          message?: string;
-          status?: number;
-          response?: { data?: unknown };
-        };
+        const err = error as { message?: string; status?: number; response?: { data?: unknown } };
         console.error("[Inngest] Failed to post incremental review:", {
           message: err.message,
           status: err.status,
