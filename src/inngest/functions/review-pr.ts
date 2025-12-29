@@ -350,8 +350,12 @@ export const reviewPR = inngest.createFunction(
       return review;
     });
 
-    // Step 7: クロスPR重複排除（Phase 1）
+    // Step 7: クロスPR重複排除（Phase 1）- 一時的に無効化
     const filteredReview = await step.run("cross-pr-deduplication", async () => {
+      // 一時的に無効化 - 全てのコメントをそのまま返す
+      return aiReview;
+
+      /* クロスPR重複排除（コメントアウト）
       if (!aiReview || aiReview.inlineComments.length === 0) {
         return aiReview;
       }
@@ -408,6 +412,7 @@ export const reviewPR = inngest.createFunction(
         // エラー時は元のレビューをそのまま返す
         return aiReview;
       }
+      */
     });
 
     // Step 8: レビュー結果をDBに保存
@@ -988,8 +993,12 @@ export const reviewPRIncremental = inngest.createFunction(
       return review;
     });
 
-    // Step 7: クロスPR重複排除（Phase 1）
+    // Step 7: クロスPR重複排除（Phase 1）- 一時的に無効化
     const filteredIncrementalReview = await step.run("cross-pr-deduplication", async () => {
+      // 一時的に無効化 - 全てのコメントをそのまま返す
+      return aiReview;
+
+      /* クロスPR重複排除（コメントアウト）
       if (!aiReview || aiReview.inlineComments.length === 0) {
         return aiReview;
       }
@@ -1040,6 +1049,7 @@ export const reviewPRIncremental = inngest.createFunction(
         console.error("[Inngest] Cross-PR deduplication failed:", error);
         return aiReview;
       }
+      */
     });
 
     // Step 8: 結果をDBに保存
