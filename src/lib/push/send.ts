@@ -15,6 +15,7 @@ export interface PushNotificationPayload {
 
 /**
  * ユーザーIDを指定してプッシュ通知を送信
+ * テストをしています
  */
 export async function sendPushNotification(
   userId: string,
@@ -46,7 +47,9 @@ export async function sendPushNotification(
 
   for (const sub of subscriptions) {
     try {
-      console.log(`[Push] Sending to endpoint: ${sub.endpoint.substring(0, 60)}...`);
+      console.log(
+        `[Push] Sending to endpoint: ${sub.endpoint.substring(0, 60)}...`
+      );
       const result = await webpush.sendNotification(
         {
           endpoint: sub.endpoint,
@@ -60,7 +63,9 @@ export async function sendPushNotification(
           TTL: 60 * 60, // 1時間
         }
       );
-      console.log(`[Push] FCM response: ${result.statusCode} ${result.body || '(empty)'}`);
+      console.log(
+        `[Push] FCM response: ${result.statusCode} ${result.body || "(empty)"}`
+      );
 
       // 送信成功: lastUsedAt更新、failCountリセット
       await prisma.pushSubscription.update({
