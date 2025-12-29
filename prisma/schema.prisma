@@ -137,6 +137,13 @@ model PullRequest {
   headSha         String
   lastReviewedSha String? // 最後にレビューしたコミット
 
+  // ドラフトPR対応 (Phase 7)
+  isDraft         Boolean   @default(false)
+  draftReviewedAt DateTime? // ドラフト時にレビューした日時
+  readyReviewedAt DateTime? // 準備完了時にレビューした日時
+  markedReadyAt   DateTime? // ドラフトから準備完了に変更した日時
+  draftCommitSha  String?   // ドラフト時の最終コミットSHA
+
   // リレーション
   repository           Repository            @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   reviews              Review[]
@@ -164,6 +171,9 @@ model Review {
   tokenCount   Int?    // 使用トークン数
   processingMs Int?    // 処理時間(ms)
   errorMessage String? @db.Text
+
+  // ドラフトPR対応 (Phase 7)
+  reviewDepth ReviewDepth @default(FULL) // レビュー深度
 
   // リレーション
   pullRequest PullRequest     @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
@@ -301,6 +311,172 @@ enum InsightCategory {
   IGNORE_PATTERN // 無視すべきパターン
 }
 
+// ========================================
+// クロスファイル依存関係分析 (Phase 3)
+// ========================================
+
+// ファイル間のインポート依存関係
+model FileDependency {
+  id              String     @id @default(cuid())
+  repositoryId    String
+  sourceFile      String     // インポートする側のファイルパス
+  targetFile      String     // インポートされる側のファイルパス
+  importType      ImportType
+  importedSymbols String[]   // インポートされるシンボル名のリスト
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([repositoryId, sourceFile, targetFile])
+  @@index([repositoryId])
+  @@index([repositoryId, targetFile])
+  @@index([repositoryId, sourceFile])
+}
+
+// エクスポートされているシンボル（関数、クラス、型など）
+model ExportedSymbol {
+  id           String     @id @default(cuid())
+  repositoryId String
+  filePath     String
+  symbolName   String
+  symbolType   SymbolType
+  signature    String?    @db.Text // 関数シグネチャや型定義
+  isDefault    Boolean    @default(false) // default export かどうか
+  lineNumber   Int?       // シンボルの定義行
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([repositoryId, filePath, symbolName])
+  @@index([repositoryId])
+  @@index([repositoryId, filePath])
+  @@index([repositoryId, symbolName])
+}
+
+// インポートタイプ
+enum ImportType {
+  NAMED       // import { foo } from './bar'
+  DEFAULT     // import foo from './bar'
+  NAMESPACE   // import * as foo from './bar'
+  TYPE_ONLY   // import type { Foo } from './bar'
+  SIDE_EFFECT // import './styles.css'
+}
+
+// シンボルタイプ
+enum SymbolType {
+  FUNCTION
+  CLASS
+  INTERFACE
+  TYPE
+  CONST
+  LET
+  VAR
+  ENUM
+  NAMESPACE
+}
+
+// ========================================
+// AIテスト生成 (Phase 4)
+// ========================================
+
+// 生成されたテストコード
+model GeneratedTest {
+  id            String        @id @default(cuid())
+  reviewId      String
+  filePath      String        // 対象ファイルパス
+  functionName  String        // 対象関数名
+  testCode      String        @db.Text // 生成されたテストコード
+  testFramework TestFramework // テストフレームワーク
+  edgeCases     String[]      // 検出されたエッジケース
+  accepted      Boolean?      // ユーザーフィードバック（null=未評価）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reviewId])
+  @@index([filePath])
+}
+
+// テストフレームワーク
+enum TestFramework {
+  JEST
+  VITEST
+  MOCHA
+  PYTEST
+}
+
+// ========================================
+// ドキュメント生成 (Phase 5)
+// ========================================
+
+// ドキュメントの欠落・不足を記録
+model DocumentationGap {
+  id           String      @id @default(cuid())
+  repositoryId String
+  reviewId     String?     // PRレビュー時に検出された場合
+  filePath     String      // 対象ファイルパス
+  symbolName   String      // 対象シンボル名（関数、クラス等）
+  symbolType   SymbolType  // シンボルの種類
+  gapType      DocGapType  // ドキュメント欠落の種類
+  severity     DocSeverity // 重要度
+  suggestedDoc String?     @db.Text // AIが提案するドキュメント
+  lineNumber   Int?        // シンボルの行番号
+  currentDoc   String?     @db.Text // 現在のドキュメント（更新が必要な場合）
+  resolvedAt   DateTime?   // 解決された日時
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([repositoryId, filePath, symbolName, gapType])
+  @@index([repositoryId])
+  @@index([repositoryId, severity])
+  @@index([reviewId])
+}
+
+// 生成されたドキュメント提案
+model GeneratedDoc {
+  id           String   @id @default(cuid())
+  reviewId     String
+  filePath     String   // 対象ファイルパス
+  symbolName   String   // 対象シンボル名
+  docType      DocType  // ドキュメントの種類
+  generatedDoc String   @db.Text // 生成されたドキュメント
+  accepted     Boolean? // ユーザーフィードバック（null=未評価）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reviewId])
+  @@index([filePath])
+}
+
+// ドキュメント欠落の種類
+enum DocGapType {
+  MISSING_JSDOC        // JSDoc/TSDocがない
+  INCOMPLETE_JSDOC     // JSDocが不完全（パラメータ説明なし等）
+  OUTDATED_JSDOC       // JSDocが古い（シグネチャと不一致）
+  MISSING_PARAM_DOC    // パラメータの説明がない
+  MISSING_RETURN_DOC   // 戻り値の説明がない
+  MISSING_EXAMPLE      // 使用例がない
+  MISSING_TYPE_DOC     // 型/インターフェースの説明がない
+  MISSING_README       // READMEセクションがない
+}
+
+// ドキュメント重要度
+enum DocSeverity {
+  CRITICAL // 公開APIで必須
+  HIGH     // エクスポートされた関数/クラス
+  MEDIUM   // 内部だが広く使用
+  LOW      // 内部ユーティリティ
+}
+
+// ドキュメントの種類
+enum DocType {
+  JSDOC      // JSDoc/TSDoc
+  README     // README セクション
+  TYPE_DOC   // 型定義のドキュメント
+  EXAMPLE    // 使用例
+}
 
 // ========================================
 // Enum定義
@@ -326,6 +502,12 @@ enum ReviewStatus {
   FAILED
 }
 
+// レビュー深度 (Phase 7)
+enum ReviewDepth {
+  LIGHT  // ドラフトPR用の軽量レビュー（重大な問題のみ）
+  FULL   // 通常の完全レビュー
+}
+
 enum Severity {
   CRITICAL
   IMPORTANT
@@ -337,4 +519,292 @@ enum RepositoryPermission {
   ADMIN
   WRITE
   READ
+}
+
+// ========================================
+// エラートラッキング (Phase 6)
+// ========================================
+
+// エラー発生記録
+model ErrorOccurrence {
+  id              String       @id @default(cuid())
+  repositoryId    String?
+  errorType       ErrorType
+  errorCode       String?      // GitHub API エラーコード等
+  errorMessage    String       @db.Text
+  friendlyMessage String?      @db.Text
+  context         Json?        // エラー発生時のコンテキスト情報
+  stackTrace      String?      @db.Text
+  resolved        Boolean      @default(false)
+  resolution      String?      @db.Text
+  createdAt       DateTime     @default(now())
+
+  @@index([errorType])
+  @@index([repositoryId])
+  @@index([createdAt])
+  @@index([errorCode])
+}
+
+// エラータイプ
+enum ErrorType {
+  GITHUB_API          // GitHub API エラー
+  GITHUB_WEBHOOK      // Webhook処理エラー
+  AI_GENERATION       // AI生成エラー
+  DATABASE            // データベースエラー
+  RATE_LIMIT          // レート制限
+  AUTHENTICATION      // 認証エラー
+  PERMISSION          // 権限エラー
+  VALIDATION          // バリデーションエラー
+  NETWORK             // ネットワークエラー
+  INTERNAL            // 内部エラー
+  UNKNOWN             // 不明なエラー
+}
+
+// ========================================
+// パフォーマンス分析 (Phase 8)
+// ========================================
+
+// 検出されたパフォーマンス問題
+model PerformanceIssue {
+  id              String              @id @default(cuid())
+  reviewId        String              // レビューID
+  filePath        String              // 対象ファイルパス
+  lineNumber      Int                 // 問題のある行番号
+  endLineNumber   Int?                // 終了行番号（範囲指定の場合）
+  issueType       PerformanceIssueType
+  severity        PerformanceSeverity
+  description     String              @db.Text // 問題の説明
+  suggestion      String?             @db.Text // 改善提案
+  codeSnippet     String?             @db.Text // 問題のあるコードスニペット
+  estimatedImpact String?             // "HIGH" | "MEDIUM" | "LOW"
+  falsePositive   Boolean?            // ユーザーフィードバック（誤検出かどうか）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reviewId])
+  @@index([issueType])
+  @@index([severity])
+}
+
+// パフォーマンス問題の種類
+enum PerformanceIssueType {
+  N_PLUS_ONE_QUERY       // N+1クエリ問題
+  MEMORY_LEAK            // メモリリークの可能性
+  UNNECESSARY_RERENDER   // 不要な再レンダリング（React）
+  INEFFICIENT_LOOP       // 非効率なループ
+  LARGE_BUNDLE_IMPORT    // 大きなバンドルインポート
+  BLOCKING_OPERATION     // ブロッキング操作
+  MISSING_MEMOIZATION    // メモ化の欠如
+  EXCESSIVE_DOM_ACCESS   // 過剰なDOM操作
+  UNOPTIMIZED_IMAGE      // 最適化されていない画像
+  MISSING_LAZY_LOAD      // 遅延読み込みの欠如
+}
+
+// パフォーマンス問題の重要度
+enum PerformanceSeverity {
+  CRITICAL  // 本番環境で重大な問題を起こす可能性
+  WARNING   // パフォーマンス低下の原因
+  INFO      // 改善の余地あり
+}
+
+// ========================================
+// CIフィードバック分析 (Phase 9)
+// ========================================
+
+// CI/CD失敗の分析結果
+model CIFailureAnalysis {
+  id              String        @id @default(cuid())
+  pullRequestId   String        // PRのID
+  checkRunId      String        // GitHub Check Run ID
+  provider        CIProvider    // CIプロバイダー
+  failureType     CIFailureType // 失敗の種類
+  rawLog          String        @db.Text // 生のログ
+  analysis        String        @db.Text // AI分析結果
+  suggestedFix    String?       @db.Text // 修正提案
+  wasHelpful      Boolean?      // ユーザーフィードバック
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pullRequestId])
+  @@index([failureType])
+  @@index([provider])
+}
+
+// CIプロバイダー
+enum CIProvider {
+  GITHUB_ACTIONS
+  GITLAB_CI
+  CIRCLECI
+  JENKINS
+  TRAVIS_CI
+  AZURE_PIPELINES
+}
+
+// CI失敗の種類
+enum CIFailureType {
+  TEST_FAILURE       // テスト失敗
+  BUILD_ERROR        // ビルドエラー
+  LINT_ERROR         // Lint/フォーマットエラー
+  TYPE_ERROR         // 型エラー（TypeScript等）
+  DEPENDENCY_ERROR   // 依存関係エラー
+  TIMEOUT            // タイムアウト
+  OUT_OF_MEMORY      // メモリ不足
+  PERMISSION_ERROR   // 権限エラー
+  CONFIGURATION_ERROR // 設定エラー
+  UNKNOWN            // 不明
+}
+
+// ========================================
+// セキュリティ脆弱性スキャン (Phase 10)
+// ========================================
+
+// 検出されたセキュリティ脆弱性
+model SecurityVulnerability {
+  id                String              @id @default(cuid())
+  reviewId          String              // レビューID
+  filePath          String              // 対象ファイルパス
+  lineNumber        Int                 // 問題のある行番号
+  endLineNumber     Int?                // 終了行番号（範囲指定の場合）
+  vulnerabilityType VulnerabilityType   // 脆弱性の種類
+  severity          SecuritySeverity    // 重要度
+  cweId             String?             // CWE ID (例: CWE-89)
+  owaspCategory     String?             // OWASP Top 10 カテゴリ
+  description       String              @db.Text // 問題の説明
+  remediation       String?             @db.Text // 修正方法
+  codeSnippet       String?             @db.Text // 問題のあるコードスニペット
+  falsePositive     Boolean?            // ユーザーフィードバック（誤検出かどうか）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reviewId])
+  @@index([vulnerabilityType])
+  @@index([severity])
+}
+
+// 脆弱性の種類
+enum VulnerabilityType {
+  SQL_INJECTION              // SQLインジェクション
+  XSS                        // クロスサイトスクリプティング
+  CSRF                       // クロスサイトリクエストフォージェリ
+  BROKEN_AUTH                // 認証の不備
+  SENSITIVE_DATA_EXPOSURE    // 機密データの露出
+  INSECURE_DESERIALIZATION   // 安全でないデシリアライズ
+  HARDCODED_SECRET           // ハードコードされた機密情報
+  PATH_TRAVERSAL             // パストラバーサル
+  COMMAND_INJECTION          // コマンドインジェクション
+  INSECURE_RANDOM            // 安全でない乱数生成
+  MISSING_AUTH_CHECK         // 認証チェックの欠如
+  INSECURE_COOKIE            // 安全でないCookie設定
+  OPEN_REDIRECT              // オープンリダイレクト
+  PROTOTYPE_POLLUTION        // プロトタイプ汚染
+  REGEX_DOS                  // 正規表現DoS（ReDoS）
+  DEPENDENCY_VULNERABILITY   // 依存関係の脆弱性
+}
+
+// セキュリティ重要度
+enum SecuritySeverity {
+  CRITICAL  // 即座に対応必要（リモートコード実行等）
+  HIGH      // 優先的に対応（データ漏洩の可能性等）
+  MEDIUM    // 計画的に対応
+  LOW       // 改善推奨
+}
+
+// ========================================
+// インテリジェントコメント永続化 (Phase 1)
+// ========================================
+
+// コメントのセマンティックフィンガープリント
+// 同じ問題の重複指摘を防ぐためのハッシュ管理
+model CommentFingerprint {
+  id               String    @id @default(cuid())
+  repositoryId     String    // リポジトリID
+  fingerprint      String    // セマンティックハッシュ（コメント内容のハッシュ）
+  category         String?   // カテゴリ（security, performance, style等）
+  patternType      String?   // パターンタイプ（より細かい分類）
+
+  // 発生情報
+  firstSeenAt      DateTime  @default(now()) // 初回検出日時
+  lastSeenAt       DateTime  @default(now()) // 最終検出日時
+  occurrenceCount  Int       @default(1)     // 検出回数
+
+  // 解決状態
+  resolvedAt       DateTime? // 解決日時（ユーザーが修正した場合）
+  userAcknowledged Boolean   @default(false) // ユーザーが認識済みかどうか
+  ignoredAt        DateTime? // 無視された日時（ユーザーが「問題ない」と判断）
+
+  // Pinecone統合
+  pineconeId       String?   // PineconeベクトルID（類似検索用）
+  embedding        Json?     // 埋め込みベクトル（キャッシュ用）
+
+  // リレーション
+  occurrences      CommentOccurrence[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([repositoryId, fingerprint])
+  @@index([repositoryId])
+  @@index([repositoryId, category])
+  @@index([repositoryId, resolvedAt])
+  @@index([lastSeenAt])
+}
+
+// コメント発生記録
+// フィンガープリントごとに、どのPR・ファイル・行で発生したかを記録
+model CommentOccurrence {
+  id            String   @id @default(cuid())
+  fingerprintId String
+  reviewId      String   // レビューID
+  pullRequestId String?  // PRのID（クロスPR追跡用）
+
+  // 発生場所
+  filePath      String   // ファイルパス
+  lineNumber    Int      // 行番号
+
+  // コメント内容
+  commentBody   String   @db.Text // 元のコメント本文
+  severity      Severity @default(INFO) // 重要度
+
+  // ユーザーアクション
+  wasAddressed  Boolean  @default(false) // ユーザーが対処したか
+  wasIgnored    Boolean  @default(false) // ユーザーが無視したか
+  userResponse  String?  @db.Text // ユーザーの返信内容
+
+  // リレーション
+  fingerprint   CommentFingerprint @relation(fields: [fingerprintId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([fingerprintId])
+  @@index([reviewId])
+  @@index([pullRequestId])
+  @@index([filePath])
+}
+
+// コメント解決追跡
+// PRがマージされた時やコメントが対処された時の記録
+model CommentResolution {
+  id              String           @id @default(cuid())
+  fingerprintId   String
+  pullRequestId   String           // 解決されたPRのID
+
+  resolutionType  ResolutionType   // 解決タイプ
+  commitSha       String?          // 解決コミットのSHA
+
+  createdAt DateTime @default(now())
+
+  @@index([fingerprintId])
+  @@index([pullRequestId])
+}
+
+// 解決タイプ
+enum ResolutionType {
+  FIXED           // コードが修正された
+  ACKNOWLEDGED    // ユーザーが認識した（修正しないと判断）
+  FALSE_POSITIVE  // 誤検出だった
+  WONT_FIX        // 修正しない（意図的）
+  DUPLICATE       // 重複した指摘
 }

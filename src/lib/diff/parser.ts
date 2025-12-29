@@ -1,5 +1,8 @@
 import type { ParsedDiff, ParsedFile, ParsedHunk } from "./types";
 
+// 型を再エクスポート
+export type { ParsedDiff, ParsedFile, ParsedHunk } from "./types";
+
 // pr-agentの正規表現パターンを参考にしたDiffパーサー
 // https://github.com/qodo-ai/pr-agent/blob/main/pr_agent/algo/git_patch_processing.py
 

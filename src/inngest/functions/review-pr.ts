@@ -25,6 +25,18 @@ import {
   saveConversationBatch,
   deserializeAdaptiveContext,
 } from "@/lib/ai/memory";
+import {
+  analyzeImpact,
+  formatImpactAnalysis,
+  type ImpactAnalysisResult,
+} from "@/lib/analysis";
+import { handleInngestError } from "@/lib/errors";
+import {
+  deduplicateComments as crossPRDeduplicateComments,
+  recordCommentOccurrence,
+  formatDeduplicationSummary as formatCrossPRDeduplicationSummary,
+  type DeduplicationComment,
+} from "@/lib/ai/persistence";
 
 /**
  * PR Opened イベントを処理してフルレビューを実行
@@ -209,6 +221,46 @@ export const reviewPR = inngest.createFunction(
       }
     });
 
+    // Step 3.6: 依存関係分析（変更の影響範囲を分析）
+    const impactAnalysis = await step.run(
+      "analyze-dependencies",
+      async (): Promise<ImpactAnalysisResult | null> => {
+        try {
+          // レビュー対象のファイルがない場合はスキップ
+          if (parsedData.files.length === 0) {
+            console.log("[Inngest] No files to analyze for dependencies");
+            return null;
+          }
+
+          console.log("[Inngest] Analyzing dependency impact...");
+          const result = await analyzeImpact(
+            dbSetup.repositoryId,
+            parsedData.parsedDiff,
+            {
+              maxDepth: 5,
+              includeTests: true,
+              includeBreakingChanges: true,
+              includeCircularDependencies: true,
+            }
+          );
+
+          console.log("[Inngest] Impact analysis completed:", {
+            changedFiles: result.changedFiles.length,
+            directlyAffected: result.directlyAffected.length,
+            transitivelyAffected: result.transitivelyAffected.length,
+            breakingChanges: result.breakingChanges.length,
+            circularDependencies: result.circularDependencies.length,
+            impactScore: result.impactScore,
+          });
+
+          return result;
+        } catch (error) {
+          console.warn("[Inngest] Dependency analysis failed:", error);
+          return null;
+        }
+      }
+    );
+
     // Step 4: RAGコンテキストを取得
     const ragContextResult = await step.run(
       "fetch-rag-context",
@@ -298,9 +350,71 @@ export const reviewPR = inngest.createFunction(
       return review;
     });
 
-    // Step 7: レビュー結果をDBに保存
+    // Step 7: クロスPR重複排除（Phase 1）
+    const filteredReview = await step.run("cross-pr-deduplication", async () => {
+      if (!aiReview || aiReview.inlineComments.length === 0) {
+        return aiReview;
+      }
+
+      try {
+        // InlineComment を DeduplicationComment に変換
+        const deduplicationComments: DeduplicationComment[] = aiReview.inlineComments.map(
+          (comment, index) => ({
+            tempId: `comment-${index}`,
+            body: comment.body,
+            filePath: comment.path,
+            lineNumber: comment.endLine,
+            severity: comment.severity as "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
+          })
+        );
+
+        // クロスPR重複排除を実行
+        const dedupResult = await crossPRDeduplicateComments({
+          repositoryId: dbSetup.repositoryId,
+          comments: deduplicationComments,
+          similarityThreshold: 0.85,
+          includeResolved: false,
+          includeAcknowledged: false,
+        });
+
+        if (dedupResult.stats.duplicateCount > 0) {
+          console.log(
+            `[Inngest] Cross-PR deduplication: ${formatCrossPRDeduplicationSummary(dedupResult)}`
+          );
+
+          // 重複としてマークされたコメントのtempIdを取得
+          const duplicateTempIds = new Set(dedupResult.duplicates.map((d) => d.tempId));
+
+          // 重複を除外したコメントリストを作成
+          const filteredComments = aiReview.inlineComments.filter(
+            (_, index) => !duplicateTempIds.has(`comment-${index}`)
+          );
+
+          return {
+            ...aiReview,
+            inlineComments: filteredComments,
+            result: {
+              ...aiReview.result,
+              comments: aiReview.result.comments.filter(
+                (_, index) => !duplicateTempIds.has(`comment-${index}`)
+              ),
+            },
+          };
+        }
+
+        return aiReview;
+      } catch (error) {
+        console.error("[Inngest] Cross-PR deduplication failed:", error);
+        // エラー時は元のレビューをそのまま返す
+        return aiReview;
+      }
+    });
+
+    // Step 8: レビュー結果をDBに保存
     await step.run("save-review", async () => {
-      if (!aiReview) {
+      // filteredReviewはシリアライズ/デシリアライズされるため型チェック
+      const review = filteredReview as typeof aiReview;
+      if (!review || !review.result) {
         await prisma.review.update({
           where: { id: dbSetup.reviewId },
           data: {
@@ -317,17 +431,17 @@ export const reviewPR = inngest.createFunction(
         where: { id: dbSetup.reviewId },
         data: {
           status: "COMPLETED",
-          summary: aiReview.result.summary,
-          walkthrough: JSON.stringify(aiReview.result.walkthrough),
-          diagram: aiReview.result.diagram,
-          tokenCount: aiReview.tokenCount,
+          summary: review.result.summary,
+          walkthrough: JSON.stringify(review.result.walkthrough),
+          diagram: review.result.diagram,
+          tokenCount: review.tokenCount,
         },
       });
 
       // コメントを保存
-      if (aiReview.inlineComments.length > 0) {
+      if (review.inlineComments.length > 0) {
         await prisma.reviewComment.createMany({
-          data: aiReview.inlineComments.map((comment) => ({
+          data: review.inlineComments.map((comment) => ({
             reviewId: dbSetup.reviewId,
             filePath: comment.path,
             lineNumber: comment.endLine,
@@ -342,9 +456,10 @@ export const reviewPR = inngest.createFunction(
       }
     });
 
-    // Step 8: 会話履歴を保存
+    // Step 9: 会話履歴を保存
     await step.run("save-conversation-history", async () => {
-      if (!aiReview) return;
+      const review = filteredReview as typeof aiReview;
+      if (!review || !review.result) return;
 
       try {
         // レビューサマリーを保存
@@ -352,16 +467,16 @@ export const reviewPR = inngest.createFunction(
           pullRequestId: dbSetup.pullRequestId,
           type: "REVIEW",
           role: "AI",
-          content: aiReview.result.summary,
+          content: review.result.summary,
           metadata: {
             reviewId: dbSetup.reviewId,
           },
         });
 
         // インラインコメントを一括保存
-        if (aiReview.inlineComments.length > 0) {
+        if (review.inlineComments.length > 0) {
           await saveConversationBatch(
-            aiReview.inlineComments.map((comment) => ({
+            review.inlineComments.map((comment) => ({
               pullRequestId: dbSetup.pullRequestId,
               type: "REVIEW" as const,
               role: "AI" as const,
@@ -377,25 +492,34 @@ export const reviewPR = inngest.createFunction(
           );
         }
 
-        console.log(`[Inngest] Saved ${aiReview.inlineComments.length + 1} conversation entries`);
+        console.log(`[Inngest] Saved ${review.inlineComments.length + 1} conversation entries`);
       } catch (error) {
         console.warn("[Inngest] Failed to save conversation history:", error);
       }
     });
 
-    // Step 9: GitHubにコメントを投稿（422エラーハンドリング付き）
+    // Step 10: GitHubにコメントを投稿（422エラーハンドリング付き）
     await step.run("post-review", async () => {
-      if (!aiReview) {
+      const review = filteredReview as typeof aiReview;
+      if (!review || !review.result) {
         console.log("[Inngest] No review to post");
         return;
       }
 
       const octokit = await getInstallationOctokit(installationId);
-      const githubReview = formatForGitHubReview(aiReview);
+      const githubReview = formatForGitHubReview(review);
+
+      // 影響分析レポートを追加（高影響または破壊的変更がある場合のみ）
+      let reviewBody = githubReview.body;
+      if (impactAnalysis && (impactAnalysis.impactScore >= 40 || impactAnalysis.breakingChanges.length > 0)) {
+        const impactReport = formatImpactAnalysis(impactAnalysis);
+        reviewBody = `${githubReview.body}\n\n---\n\n${impactReport}`;
+      }
 
       console.log("[Inngest] Posting review with comments:", {
         commentsCount: githubReview.comments.length,
         event: githubReview.event,
+        includesImpactAnalysis: impactAnalysis !== null && (impactAnalysis.impactScore >= 40 || impactAnalysis.breakingChanges.length > 0),
       });
 
       // 新しいsubmitterを使用（422エラーハンドリング付き）
@@ -406,7 +530,7 @@ export const reviewPR = inngest.createFunction(
         prNumber,
         headSha,
         {
-          body: githubReview.body,
+          body: reviewBody,
           comments: githubReview.comments as ReviewComment[],
           event: githubReview.event,
         },
@@ -421,8 +545,194 @@ export const reviewPR = inngest.createFunction(
       });
 
       if (!result.success) {
+        // エラーを追跡
+        await handleInngestError(new Error(`Failed to post review: ${result.error}`), {
+          context: {
+            operation: "post-review",
+            repository: { owner, name: repo },
+            pullRequest: { number: prNumber },
+          },
+          prInfo: {
+            installationId,
+            owner,
+            repo,
+            prNumber,
+          },
+        });
         throw new Error(`Failed to post review: ${result.error}`);
       }
+    });
+
+    // Step 11: コメント発生を永続化（Phase 1）
+    await step.run("record-comment-occurrences", async () => {
+      const review = filteredReview as typeof aiReview;
+      if (!review || !review.inlineComments || review.inlineComments.length === 0) {
+        return;
+      }
+
+      try {
+        // 各コメントの発生を記録
+        for (const comment of review.inlineComments) {
+          await recordCommentOccurrence({
+            repositoryId: dbSetup.repositoryId,
+            reviewId: dbSetup.reviewId,
+            pullRequestId: dbSetup.pullRequestId,
+            filePath: comment.path,
+            lineNumber: comment.endLine,
+            commentBody: comment.body,
+            severity: comment.severity as "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
+          });
+        }
+
+        console.log(
+          `[Inngest] Recorded ${review.inlineComments.length} comment occurrences for future deduplication`
+        );
+      } catch (error) {
+        console.warn("[Inngest] Failed to record comment occurrences:", error);
+        // エラーは無視してレビューは成功とする
+      }
+    });
+
+    // Step 12: テスト生成をトリガー（Phase 4）
+    await step.run("trigger-test-generation", async () => {
+      // 環境変数でテスト生成が有効かチェック
+      if (process.env.TEST_GENERATION_ENABLED !== "true") {
+        console.log("[Inngest] Test generation disabled");
+        return { triggered: false };
+      }
+
+      // レビュー対象ファイルがない場合はスキップ
+      if (parsedData.files.length === 0) {
+        console.log("[Inngest] No files to generate tests for");
+        return { triggered: false };
+      }
+
+      // テスト生成イベントを送信
+      await inngest.send({
+        name: "github/generate-tests",
+        data: {
+          installationId,
+          owner,
+          repo,
+          prNumber,
+          headSha,
+          reviewId: dbSetup.reviewId,
+          useAI: process.env.TEST_GENERATION_USE_AI !== "false",
+          maxFunctions: parseInt(process.env.TEST_GENERATION_MAX_FUNCTIONS || "5", 10),
+        },
+      });
+
+      console.log("[Inngest] Test generation triggered");
+      return { triggered: true };
+    });
+
+    // Step 13: ドキュメント分析をトリガー（Phase 5）
+    await step.run("trigger-documentation-analysis", async () => {
+      // 環境変数でドキュメント分析が有効かチェック
+      if (process.env.DOC_GENERATION_ENABLED !== "true") {
+        console.log("[Inngest] Documentation analysis disabled");
+        return { triggered: false };
+      }
+
+      // レビュー対象ファイルがない場合はスキップ
+      if (parsedData.files.length === 0) {
+        console.log("[Inngest] No files for documentation analysis");
+        return { triggered: false };
+      }
+
+      // ドキュメント分析イベントを送信
+      await inngest.send({
+        name: "github/analyze-documentation",
+        data: {
+          installationId,
+          owner,
+          repo,
+          prNumber,
+          headSha,
+          reviewId: dbSetup.reviewId,
+          useAI: process.env.DOC_GENERATION_USE_AI !== "false",
+          language: (process.env.DOC_GENERATION_LANGUAGE as "ja" | "en") || "ja",
+          analyzeReadme: process.env.DOC_ANALYZE_README !== "false",
+        },
+      });
+
+      console.log("[Inngest] Documentation analysis triggered");
+      return { triggered: true };
+    });
+
+    // Step 14: パフォーマンス分析をトリガー（Phase 8）
+    await step.run("trigger-performance-analysis", async () => {
+      // 環境変数でパフォーマンス分析が有効かチェック
+      if (process.env.PERFORMANCE_ANALYSIS_ENABLED !== "true") {
+        console.log("[Inngest] Performance analysis disabled");
+        return { triggered: false };
+      }
+
+      // レビュー対象ファイルがない場合はスキップ
+      if (parsedData.files.length === 0) {
+        console.log("[Inngest] No files for performance analysis");
+        return { triggered: false };
+      }
+
+      // パフォーマンス分析イベントを送信
+      await inngest.send({
+        name: "github/analyze-performance",
+        data: {
+          installationId,
+          owner,
+          repo,
+          prNumber,
+          headSha,
+          reviewId: dbSetup.reviewId,
+          language: (process.env.PERFORMANCE_ANALYSIS_LANGUAGE as "ja" | "en") || "ja",
+          detectNPlusOne: process.env.PERFORMANCE_DETECT_NPLUSONE !== "false",
+          detectMemoryLeaks: process.env.PERFORMANCE_DETECT_MEMORY_LEAKS !== "false",
+          detectReactRerenders: process.env.PERFORMANCE_DETECT_REACT_RERENDERS !== "false",
+          detectInefficientLoops: process.env.PERFORMANCE_DETECT_INEFFICIENT_LOOPS !== "false",
+          detectLargeBundleImports: process.env.PERFORMANCE_DETECT_LARGE_BUNDLES !== "false",
+        },
+      });
+
+      console.log("[Inngest] Performance analysis triggered");
+      return { triggered: true };
+    });
+
+    // Step 15: セキュリティスキャンをトリガー（Phase 10）
+    await step.run("trigger-security-scan", async () => {
+      // 環境変数でセキュリティスキャンが有効かチェック
+      if (process.env.SECURITY_SCAN_ENABLED !== "true") {
+        console.log("[Inngest] Security scan disabled");
+        return { triggered: false };
+      }
+
+      // レビュー対象ファイルがない場合はスキップ
+      if (parsedData.files.length === 0) {
+        console.log("[Inngest] No files for security scan");
+        return { triggered: false };
+      }
+
+      // セキュリティスキャンイベントを送信
+      await inngest.send({
+        name: "github/scan-security",
+        data: {
+          installationId,
+          owner,
+          repo,
+          prNumber,
+          headSha,
+          reviewId: dbSetup.reviewId,
+          language: (process.env.SECURITY_SCAN_LANGUAGE as "ja" | "en") || "ja",
+          detectSqlInjection: process.env.SECURITY_DETECT_SQL_INJECTION !== "false",
+          detectXss: process.env.SECURITY_DETECT_XSS !== "false",
+          detectSecrets: process.env.SECURITY_DETECT_SECRETS !== "false",
+          detectAuthIssues: process.env.SECURITY_DETECT_AUTH_ISSUES !== "false",
+          minSeverity: (process.env.SECURITY_MIN_SEVERITY as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW") || "MEDIUM",
+          maxIssues: parseInt(process.env.SECURITY_MAX_ISSUES || "20", 10),
+        },
+      });
+
+      console.log("[Inngest] Security scan triggered");
+      return { triggered: true };
     });
 
     console.log("[Inngest] PR review completed", { prNumber });
@@ -513,6 +823,7 @@ export const reviewPRIncremental = inngest.createFunction(
       return {
         pullRequestId: pullRequest.id,
         reviewId: review.id,
+        repositoryId: pullRequest.repositoryId,
       };
     });
 
@@ -591,6 +902,48 @@ export const reviewPRIncremental = inngest.createFunction(
       }
     });
 
+    // Step 4.6: 依存関係分析（変更の影響範囲を分析）
+    const impactAnalysis = await step.run(
+      "analyze-dependencies",
+      async (): Promise<ImpactAnalysisResult | null> => {
+        try {
+          if (parsedData.files.length === 0) {
+            return null;
+          }
+
+          // リポジトリIDを取得
+          const pr = await prisma.pullRequest.findUnique({
+            where: { id: dbSetup.pullRequestId },
+            select: { repositoryId: true },
+          });
+
+          if (!pr) return null;
+
+          console.log("[Inngest] Analyzing dependency impact (incremental)...");
+          const result = await analyzeImpact(
+            pr.repositoryId,
+            parsedData.parsedDiff,
+            {
+              maxDepth: 5,
+              includeTests: true,
+              includeBreakingChanges: true,
+              includeCircularDependencies: true,
+            }
+          );
+
+          console.log("[Inngest] Impact analysis completed (incremental):", {
+            impactScore: result.impactScore,
+            breakingChanges: result.breakingChanges.length,
+          });
+
+          return result;
+        } catch (error) {
+          console.warn("[Inngest] Dependency analysis failed:", error);
+          return null;
+        }
+      }
+    );
+
     // Step 5: 適応コンテキストを構築
     const adaptiveContext = await step.run("build-adaptive-context", async () => {
       try {
@@ -635,9 +988,64 @@ export const reviewPRIncremental = inngest.createFunction(
       return review;
     });
 
-    // Step 7: 結果をDBに保存
+    // Step 7: クロスPR重複排除（Phase 1）
+    const filteredIncrementalReview = await step.run("cross-pr-deduplication", async () => {
+      if (!aiReview || aiReview.inlineComments.length === 0) {
+        return aiReview;
+      }
+
+      try {
+        const deduplicationComments: DeduplicationComment[] = aiReview.inlineComments.map(
+          (comment, index) => ({
+            tempId: `comment-${index}`,
+            body: comment.body,
+            filePath: comment.path,
+            lineNumber: comment.endLine,
+            severity: comment.severity as "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
+          })
+        );
+
+        const dedupResult = await crossPRDeduplicateComments({
+          repositoryId: dbSetup.repositoryId,
+          comments: deduplicationComments,
+          similarityThreshold: 0.85,
+          includeResolved: false,
+          includeAcknowledged: false,
+        });
+
+        if (dedupResult.stats.duplicateCount > 0) {
+          console.log(
+            `[Inngest] Cross-PR deduplication (incremental): ${formatCrossPRDeduplicationSummary(dedupResult)}`
+          );
+
+          const duplicateTempIds = new Set(dedupResult.duplicates.map((d) => d.tempId));
+          const filteredComments = aiReview.inlineComments.filter(
+            (_, index) => !duplicateTempIds.has(`comment-${index}`)
+          );
+
+          return {
+            ...aiReview,
+            inlineComments: filteredComments,
+            result: {
+              ...aiReview.result,
+              comments: aiReview.result.comments.filter(
+                (_, index) => !duplicateTempIds.has(`comment-${index}`)
+              ),
+            },
+          };
+        }
+
+        return aiReview;
+      } catch (error) {
+        console.error("[Inngest] Cross-PR deduplication failed:", error);
+        return aiReview;
+      }
+    });
+
+    // Step 8: 結果をDBに保存
     await step.run("save-review", async () => {
-      if (!aiReview) {
+      const review = filteredIncrementalReview as typeof aiReview;
+      if (!review || !review.result) {
         await prisma.review.update({
           where: { id: dbSetup.reviewId },
           data: {
@@ -653,15 +1061,15 @@ export const reviewPRIncremental = inngest.createFunction(
         where: { id: dbSetup.reviewId },
         data: {
           status: "COMPLETED",
-          summary: aiReview.result.summary,
-          walkthrough: JSON.stringify(aiReview.result.walkthrough),
-          tokenCount: aiReview.tokenCount,
+          summary: review.result.summary,
+          walkthrough: JSON.stringify(review.result.walkthrough),
+          tokenCount: review.tokenCount,
         },
       });
 
-      if (aiReview.inlineComments.length > 0) {
+      if (review.inlineComments.length > 0) {
         await prisma.reviewComment.createMany({
-          data: aiReview.inlineComments.map((comment) => ({
+          data: review.inlineComments.map((comment) => ({
             reviewId: dbSetup.reviewId,
             filePath: comment.path,
             lineNumber: comment.endLine,
@@ -676,26 +1084,25 @@ export const reviewPRIncremental = inngest.createFunction(
       }
     });
 
-    // Step 8: 会話履歴を保存
+    // Step 9: 会話履歴を保存
     await step.run("save-conversation-history", async () => {
-      if (!aiReview) return;
+      const review = filteredIncrementalReview as typeof aiReview;
+      if (!review || !review.result) return;
 
       try {
-        // レビューサマリーを保存
         await saveConversation({
           pullRequestId: dbSetup.pullRequestId,
           type: "REVIEW",
           role: "AI",
-          content: aiReview.result.summary,
+          content: review.result.summary,
           metadata: {
             reviewId: dbSetup.reviewId,
           },
         });
 
-        // インラインコメントを一括保存
-        if (aiReview.inlineComments.length > 0) {
+        if (review.inlineComments.length > 0) {
           await saveConversationBatch(
-            aiReview.inlineComments.map((comment) => ({
+            review.inlineComments.map((comment) => ({
               pullRequestId: dbSetup.pullRequestId,
               type: "REVIEW" as const,
               role: "AI" as const,
@@ -711,18 +1118,25 @@ export const reviewPRIncremental = inngest.createFunction(
           );
         }
 
-        console.log(`[Inngest] Saved ${aiReview.inlineComments.length + 1} conversation entries (incremental)`);
+        console.log(`[Inngest] Saved ${review.inlineComments.length + 1} conversation entries (incremental)`);
       } catch (error) {
         console.warn("[Inngest] Failed to save conversation history:", error);
       }
     });
 
-    // Step 9: GitHubにコメントを投稿（422エラーハンドリング付き）
+    // Step 10: GitHubにコメントを投稿（422エラーハンドリング付き）
     await step.run("post-incremental-review", async () => {
-      if (!aiReview) return;
+      const review = filteredIncrementalReview as typeof aiReview;
+      if (!review || !review.result) return;
 
       const octokit = await getInstallationOctokit(installationId);
-      const githubReview = formatForGitHubReview(aiReview);
+      const githubReview = formatForGitHubReview(review);
+
+      // 影響分析レポートを追加（高影響または破壊的変更がある場合のみ）
+      let impactSection = "";
+      if (impactAnalysis && (impactAnalysis.impactScore >= 40 || impactAnalysis.breakingChanges.length > 0)) {
+        impactSection = `\n\n---\n\n${formatImpactAnalysis(impactAnalysis)}`;
+      }
 
       // 増分レビューであることを明記
       const incrementalBody = `## 🔄 Incremental Review
@@ -734,11 +1148,12 @@ This review covers changes from \`${beforeSha.slice(
 
 ---
 
-${githubReview.body}`;
+${githubReview.body}${impactSection}`;
 
       console.log("[Inngest] Posting incremental review with comments:", {
         commentsCount: githubReview.comments.length,
         event: githubReview.event,
+        includesImpactAnalysis: impactAnalysis !== null && (impactAnalysis.impactScore >= 40 || impactAnalysis.breakingChanges.length > 0),
       });
 
       // 新しいsubmitterを使用（422エラーハンドリング付き）
@@ -764,9 +1179,183 @@ ${githubReview.body}`;
       });
 
       if (!result.success) {
+        // エラーを追跡
+        await handleInngestError(new Error(`Failed to post incremental review: ${result.error}`), {
+          context: {
+            operation: "post-incremental-review",
+            repository: { owner, name: repo },
+            pullRequest: { number: prNumber },
+          },
+          prInfo: {
+            installationId,
+            owner,
+            repo,
+            prNumber,
+          },
+        });
         throw new Error(`Failed to post incremental review: ${result.error}`);
       }
     });
+
+    // Step 11: コメント発生を永続化（Phase 1）
+    await step.run("record-comment-occurrences", async () => {
+      const review = filteredIncrementalReview as typeof aiReview;
+      if (!review || !review.inlineComments || review.inlineComments.length === 0) {
+        return;
+      }
+
+      try {
+        for (const comment of review.inlineComments) {
+          await recordCommentOccurrence({
+            repositoryId: dbSetup.repositoryId,
+            reviewId: dbSetup.reviewId,
+            pullRequestId: dbSetup.pullRequestId,
+            filePath: comment.path,
+            lineNumber: comment.endLine,
+            commentBody: comment.body,
+            severity: comment.severity as "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
+          });
+        }
+
+        console.log(
+          `[Inngest] Recorded ${review.inlineComments.length} comment occurrences (incremental)`
+        );
+      } catch (error) {
+        console.warn("[Inngest] Failed to record comment occurrences:", error);
+      }
+    });
+
+    // Step 12: テスト生成をトリガー（Phase 4）
+    await step.run("trigger-test-generation", async () => {
+      if (process.env.TEST_GENERATION_ENABLED !== "true") {
+        console.log("[Inngest] Test generation disabled (incremental)");
+        return { triggered: false };
+      }
+
+      if (parsedData.files.length === 0) {
+        console.log("[Inngest] No files to generate tests for (incremental)");
+        return { triggered: false };
+      }
+
+      await inngest.send({
+        name: "github/generate-tests",
+        data: {
+          installationId,
+          owner,
+          repo,
+          prNumber,
+          headSha: afterSha,
+          reviewId: dbSetup.reviewId,
+          useAI: process.env.TEST_GENERATION_USE_AI !== "false",
+          maxFunctions: parseInt(process.env.TEST_GENERATION_MAX_FUNCTIONS || "5", 10),
+        },
+      });
+
+      console.log("[Inngest] Test generation triggered (incremental)");
+      return { triggered: true };
+    });
+
+    // Step 13: ドキュメント分析をトリガー（Phase 5）
+    await step.run("trigger-documentation-analysis", async () => {
+      if (process.env.DOC_GENERATION_ENABLED !== "true") {
+        console.log("[Inngest] Documentation analysis disabled (incremental)");
+        return { triggered: false };
+      }
+
+      if (parsedData.files.length === 0) {
+        console.log("[Inngest] No files for documentation analysis (incremental)");
+        return { triggered: false };
+      }
+
+      await inngest.send({
+        name: "github/analyze-documentation",
+        data: {
+          installationId,
+          owner,
+          repo,
+          prNumber,
+          headSha: afterSha,
+          reviewId: dbSetup.reviewId,
+          useAI: process.env.DOC_GENERATION_USE_AI !== "false",
+          language: (process.env.DOC_GENERATION_LANGUAGE as "ja" | "en") || "ja",
+          analyzeReadme: process.env.DOC_ANALYZE_README !== "false",
+        },
+      });
+
+      console.log("[Inngest] Documentation analysis triggered (incremental)");
+      return { triggered: true };
+    });
+
+    // Step 14: パフォーマンス分析をトリガー（Phase 8）
+    await step.run("trigger-performance-analysis", async () => {
+      if (process.env.PERFORMANCE_ANALYSIS_ENABLED !== "true") {
+        console.log("[Inngest] Performance analysis disabled (incremental)");
+        return { triggered: false };
+      }
+
+      if (parsedData.files.length === 0) {
+        console.log("[Inngest] No files for performance analysis (incremental)");
+        return { triggered: false };
+      }
+
+      await inngest.send({
+        name: "github/analyze-performance",
+        data: {
+          installationId,
+          owner,
+          repo,
+          prNumber,
+          headSha: afterSha,
+          reviewId: dbSetup.reviewId,
+          language: (process.env.PERFORMANCE_ANALYSIS_LANGUAGE as "ja" | "en") || "ja",
+          detectNPlusOne: process.env.PERFORMANCE_DETECT_NPLUSONE !== "false",
+          detectMemoryLeaks: process.env.PERFORMANCE_DETECT_MEMORY_LEAKS !== "false",
+          detectReactRerenders: process.env.PERFORMANCE_DETECT_REACT_RERENDERS !== "false",
+          detectInefficientLoops: process.env.PERFORMANCE_DETECT_INEFFICIENT_LOOPS !== "false",
+          detectLargeBundleImports: process.env.PERFORMANCE_DETECT_LARGE_BUNDLES !== "false",
+        },
+      });
+
+      console.log("[Inngest] Performance analysis triggered (incremental)");
+      return { triggered: true };
+    });
+
+    // Step 15: セキュリティスキャンをトリガー（Phase 10）
+    await step.run("trigger-security-scan", async () => {
+      if (process.env.SECURITY_SCAN_ENABLED !== "true") {
+        console.log("[Inngest] Security scan disabled (incremental)");
+        return { triggered: false };
+      }
+
+      if (parsedData.files.length === 0) {
+        console.log("[Inngest] No files for security scan (incremental)");
+        return { triggered: false };
+      }
+
+      await inngest.send({
+        name: "github/scan-security",
+        data: {
+          installationId,
+          owner,
+          repo,
+          prNumber,
+          headSha: afterSha,
+          reviewId: dbSetup.reviewId,
+          language: (process.env.SECURITY_SCAN_LANGUAGE as "ja" | "en") || "ja",
+          detectSqlInjection: process.env.SECURITY_DETECT_SQL_INJECTION !== "false",
+          detectXss: process.env.SECURITY_DETECT_XSS !== "false",
+          detectSecrets: process.env.SECURITY_DETECT_SECRETS !== "false",
+          detectAuthIssues: process.env.SECURITY_DETECT_AUTH_ISSUES !== "false",
+          minSeverity: (process.env.SECURITY_MIN_SEVERITY as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW") || "MEDIUM",
+          maxIssues: parseInt(process.env.SECURITY_MAX_ISSUES || "20", 10),
+        },
+      });
+
+      console.log("[Inngest] Security scan triggered (incremental)");
+      return { triggered: true };
+    });
+
+    console.log("[Inngest] Incremental PR review completed", { prNumber });
 
     return {
       success: true,

@@ -9,7 +9,7 @@ import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { z } from "zod";
 import type { InlineComment } from "./schemas";
-import { repairAndParseJSON, formatRepairSummary } from "./parser";
+import { parseAndValidateJson } from "./json-utils";
 
 // ========================================
 // 設定
@@ -167,21 +167,17 @@ export async function reflectOnReview(
       temperature: 0.3,
     });
 
-    // JSONをパース（多段階修復付き）
-    const repairResult = repairAndParseJSON(aiResult.text, ReflectionResultSchema);
+    // JSONをパース
+    const parseResult = parseAndValidateJson(aiResult.text, ReflectionResultSchema);
 
-    if (repairResult.success && repairResult.data) {
-      const validated = repairResult.data;
-      if (repairResult.repairStrategy) {
-        console.log(`[Reflection] JSON repaired using: ${repairResult.repairStrategy}`);
-      }
+    if (parseResult.success) {
+      const validated = parseResult.data;
       console.log(`[Reflection] Quality: ${validated.overallQuality}/10, Comments validated: ${validated.suggestions.length}`);
       return validated;
     }
 
     // パース失敗
-    console.error("[Reflection] JSON repair failed");
-    console.error("[Reflection] Repair summary:\n", formatRepairSummary(repairResult));
+    console.error("[Reflection] JSON parse failed:", parseResult.error);
 
     // フォールバック: 全コメントを採用
     return {
