@@ -43,6 +43,7 @@ export const chatResponseJob = inngest.createFunction(
       commentId,
       commentBody,
       commentAuthor,
+      commentAuthorId,
       inReplyToId,
     } = event.data;
 
@@ -185,13 +186,14 @@ export const chatResponseJob = inngest.createFunction(
     });
 
     // Step 7: GitHubに返信を投稿
-    await step.run("post-response", async () => {
+    const postResult = await step.run("post-response", async () => {
       // 応答にボット署名を追加
       const responseBody = `${response.response}\n\n---\n*🐴 CodeHorse AI Assistant*`;
 
+      let result;
       if (inReplyToId) {
         // レビューコメントへの返信
-        await createReviewCommentReply(
+        result = await createReviewCommentReply(
           installationId,
           owner,
           repo,
@@ -201,10 +203,16 @@ export const chatResponseJob = inngest.createFunction(
         );
       } else {
         // PRコメントへの返信
-        await createIssueComment(installationId, owner, repo, prNumber, responseBody);
+        result = await createIssueComment(installationId, owner, repo, prNumber, responseBody);
       }
 
       console.log("[Inngest] Response posted");
+
+      // コメントURLを返す
+      return {
+        commentId: result.data.id,
+        htmlUrl: result.data.html_url,
+      };
     });
 
     // Step 8: AI応答を会話履歴に保存
@@ -224,6 +232,34 @@ export const chatResponseJob = inngest.createFunction(
         console.log("[Inngest] Saved chat conversation to history");
       } catch (error) {
         console.warn("[Inngest] Failed to save AI response:", error);
+      }
+    });
+
+    // Step 9: プッシュ通知イベントを発火
+    await step.run("send-push-notification-event", async () => {
+      try {
+        // 応答のプレビュー（先頭100文字）
+        const responsePreview =
+          response.response.length > 100
+            ? response.response.substring(0, 100) + "..."
+            : response.response;
+
+        await inngest.send({
+          name: "push/notification.chat-response",
+          data: {
+            commentAuthor,
+            commentAuthorId,
+            owner,
+            repo,
+            prNumber,
+            responsePreview,
+            commentUrl: postResult.htmlUrl,
+          },
+        });
+        console.log("[Inngest] Push notification event sent");
+      } catch (error) {
+        // プッシュ通知の失敗はエラーとして扱わない
+        console.warn("[Inngest] Failed to send push notification event:", error);
       }
     });
 

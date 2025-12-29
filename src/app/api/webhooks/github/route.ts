@@ -254,6 +254,7 @@ async function handleIssueComment(payload: IssueCommentPayload) {
       commentId: comment.id,
       commentBody: comment.body,
       commentAuthor: comment.user.login,
+      commentAuthorId: comment.user.id,
     },
   });
   console.log("[Webhook] Sent comment event to Inngest for chatbot response");
@@ -293,6 +294,7 @@ async function handlePullRequestReviewComment(
       commentId: comment.id,
       commentBody: comment.body,
       commentAuthor: comment.user.login,
+      commentAuthorId: comment.user.id,
       inReplyToId: comment.in_reply_to_id,
     },
   });

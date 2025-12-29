@@ -24,9 +24,11 @@ model User {
   updatedAt     DateTime  @updatedAt
 
   // リレーション
-  accounts     Account[]
-  sessions     Session[]
-  repositories UserRepository[]
+  accounts             Account[]
+  sessions             Session[]
+  repositories         UserRepository[]
+  pushSubscriptions    PushSubscription[]
+  notificationSettings NotificationSettings?
 }
 
 model Account {
@@ -807,4 +809,47 @@ enum ResolutionType {
   FALSE_POSITIVE  // 誤検出だった
   WONT_FIX        // 修正しない（意図的）
   DUPLICATE       // 重複した指摘
+}
+
+// ========================================
+// Web Push通知 (プッシュ通知機能)
+// ========================================
+
+// VAPID鍵（アプリ全体で1レコード - シングルトン）
+model VapidKeys {
+  id         String   @id @default("singleton")
+  publicKey  String   @db.Text
+  privateKey String   @db.Text
+  subject    String   @default("mailto:admin@codehorse.app")
+  createdAt  DateTime @default(now())
+}
+
+// Pushサブスクリプション（ユーザー×デバイスごと）
+model PushSubscription {
+  id         String    @id @default(cuid())
+  userId     String
+  endpoint   String    @db.Text
+  p256dh     String    @db.Text
+  auth       String    @db.Text
+  userAgent  String?   @db.Text
+  isActive   Boolean   @default(true)
+  failCount  Int       @default(0)
+  lastUsedAt DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([userId, endpoint])
+  @@index([userId])
+  @@index([isActive])
+}
+
+// 通知設定
+model NotificationSettings {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  chatResponseEnabled Boolean  @default(true)
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
