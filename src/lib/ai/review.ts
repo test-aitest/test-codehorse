@@ -442,8 +442,9 @@ export async function generateReview(
           deduplicationResult
         )}`
       );
-      filteredComments = deduplicationResult.comments;
     }
+    // 常にdeduplicationResult.commentsを使用（ソート済み・正規化済み）
+    filteredComments = deduplicationResult.comments;
   }
 
   // サマリーコメント生成
