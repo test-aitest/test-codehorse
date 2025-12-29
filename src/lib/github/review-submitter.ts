@@ -55,9 +55,12 @@ export async function submitReviewWithFallback(
   const validatedComments = validateAndAdjustComments(comments, parsedDiff);
   const validComments = validatedComments.valid;
   const invalidComments = validatedComments.invalid;
-  console.log(`[Review] Valid: ${validComments.length}, Invalid: ${invalidComments.length}`);
+  console.log(
+    `[Review] Valid: ${validComments.length}, Invalid: ${invalidComments.length}`
+  );
 
   // 無効なコメントがあればサマリーに追加
+  // テストです
   let updatedBody = body;
   if (invalidComments.length > 0) {
     console.warn(
@@ -236,7 +239,9 @@ async function handle422Error(
         }
 
         failedComments.push(comment);
-        console.warn(`[Review] Comment failed: ${comment.path}:${comment.line}`);
+        console.warn(
+          `[Review] Comment failed: ${comment.path}:${comment.line}`
+        );
       } else {
         throw testError;
       }
@@ -268,7 +273,10 @@ async function handle422Error(
         fallbackToIssueComment: true,
       };
     } catch (fallbackError) {
-      console.error("[Review] Fallback to issue comment also failed:", fallbackError);
+      console.error(
+        "[Review] Fallback to issue comment also failed:",
+        fallbackError
+      );
       return {
         success: false,
         postedComments: 0,
