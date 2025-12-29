@@ -57,17 +57,20 @@ export async function submitReviewWithFallback(
   const invalidComments = validatedComments.invalid;
   console.log(`[Review] Valid: ${validComments.length}, Invalid: ${invalidComments.length}`);
 
+  // 無効なコメントがあればサマリーに追加
+  let updatedBody = body;
   if (invalidComments.length > 0) {
     console.warn(
       `[Review] ${invalidComments.length} comments have invalid positions`
     );
+    updatedBody = appendInvalidCommentsToSummary(body, invalidComments);
   }
 
   // コメントがない場合はサマリーのみ投稿
   if (validComments.length === 0) {
     try {
       await createPullRequestReview(octokit, owner, repo, prNumber, commitId, {
-        body,
+        body: updatedBody,
         comments: [],
         event,
       });
@@ -92,7 +95,7 @@ export async function submitReviewWithFallback(
   // Step 2: レビュー投稿を試行
   try {
     await createPullRequestReview(octokit, owner, repo, prNumber, commitId, {
-      body,
+      body: updatedBody,
       comments: validComments as ReviewCommentInput[],
       event,
     });
@@ -340,6 +343,34 @@ function appendFailedCommentsNote(
     .join(", ");
 
   return `${body}\n\n---\n\n⚠️ ${failedComments.length}件のコメントはインラインで投稿できませんでした: ${failedPaths}`;
+}
+
+/**
+ * 無効な位置のコメントをサマリーに追加
+ * diffの範囲外のコメントも表示する
+ */
+function appendInvalidCommentsToSummary(
+  body: string,
+  invalidComments: ReviewComment[]
+): string {
+  if (invalidComments.length === 0) return body;
+
+  let result = body;
+  result += "\n\n---\n\n### 📌 追加のコメント\n\n";
+  result += "*以下のコメントはdiffの範囲外のため、ここに記載します:*\n\n";
+
+  for (const comment of invalidComments) {
+    const lineInfo = comment.start_line
+      ? `行 ${comment.start_line}-${comment.line}`
+      : `行 ${comment.line}`;
+
+    result += `<details>\n`;
+    result += `<summary><code>${comment.path}</code> (${lineInfo})</summary>\n\n`;
+    result += comment.body;
+    result += `\n</details>\n\n`;
+  }
+
+  return result;
 }
 
 /**
