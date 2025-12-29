@@ -223,8 +223,100 @@ export type ParseResult<T> =
   | { success: false; error: string };
 
 /**
+ * pr-agent方式: エラー位置を特定して問題の文字を置換する再帰的修復
+ * エラーメッセージからposition情報を抽出し、その位置の文字をスペースに置換
+ */
+export function fixJsonByErrorPosition(
+  jsonStr: string,
+  maxIterations: number = 10
+): string {
+  let current = jsonStr;
+  let iterations = 0;
+
+  while (iterations < maxIterations) {
+    try {
+      JSON.parse(current);
+      return current; // パース成功
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // エラーメッセージから位置を抽出
+      // 例: "at position 123" or "at line 1 column 45"
+      let position = -1;
+
+      // パターン1: "at position N"
+      const posMatch = errorMessage.match(/at position (\d+)/i);
+      if (posMatch) {
+        position = parseInt(posMatch[1], 10);
+      }
+
+      // パターン2: "position N (line L column C)"
+      const posMatch2 = errorMessage.match(/position (\d+)/i);
+      if (position === -1 && posMatch2) {
+        position = parseInt(posMatch2[1], 10);
+      }
+
+      if (position === -1 || position >= current.length) {
+        // 位置を特定できない場合は終了
+        break;
+      }
+
+      // 問題の文字をスペースに置換
+      const chars = current.split("");
+      chars[position] = " ";
+      current = chars.join("");
+      iterations++;
+
+      console.log(`[JSON] Fixed character at position ${position}, iteration ${iterations}`);
+    }
+  }
+
+  return current;
+}
+
+/**
+ * 切り詰められたJSONから最後の有効なオブジェクト境界を探す
+ * pr-agent方式: 不完全なJSONの末尾を切り詰めて閉じカッコを追加
+ */
+export function truncateToLastValidObject(jsonStr: string): string {
+  // 末尾が正常に閉じている場合はそのまま返す
+  if (jsonStr.trim().endsWith("}")) {
+    return jsonStr;
+  }
+
+  // オブジェクト境界（}, のパターン）を探す
+  const objectBoundaries: number[] = [];
+  const regex = /\}\s*,/g;
+  let match;
+  while ((match = regex.exec(jsonStr)) !== null) {
+    objectBoundaries.push(match.index);
+  }
+
+  if (objectBoundaries.length === 0) {
+    return jsonStr;
+  }
+
+  // 最後の有効な境界から試行
+  for (let i = objectBoundaries.length - 1; i >= 0; i--) {
+    const truncated = jsonStr.substring(0, objectBoundaries[i] + 1);
+    // 閉じカッコを追加してみる
+    const withClosing = truncated + "]}";
+
+    try {
+      JSON.parse(withClosing);
+      console.log(`[JSON] Truncated to last valid object at position ${objectBoundaries[i]}`);
+      return withClosing;
+    } catch {
+      // 次の境界を試す
+    }
+  }
+
+  return jsonStr;
+}
+
+/**
  * JSONをパースしてZodスキーマで検証
- * パース失敗時は修復を試みる
+ * pr-agent方式の多段階フォールバック戦略を採用
  */
 export function parseAndValidateJson<T>(
   text: string,
@@ -232,34 +324,67 @@ export function parseAndValidateJson<T>(
 ): ParseResult<T> {
   const rawJsonStr = extractJsonFromText(text);
 
-  // 前処理: 不正なエスケープシーケンスと制御文字を修正
+  // ========================================
+  // フォールバック戦略 1: 基本的な前処理
+  // ========================================
   const jsonStr = escapeControlCharsInStrings(fixBadEscapeSequences(rawJsonStr));
 
-  // 1. まず通常のパースを試みる
   try {
     const parsed = JSON.parse(jsonStr);
     const validated = schema.parse(parsed);
     return { success: true, data: validated };
-  } catch (firstError) {
-    // 2. 失敗した場合、追加の修復を試みる
-    console.log("[JSON] Initial parse failed, attempting repair...");
+  } catch (error1) {
+    console.log("[JSON] Initial parse failed, attempting fallbacks...");
 
+    // ========================================
+    // フォールバック戦略 2: 切り詰め修復
+    // ========================================
     try {
       const repaired = repairTruncatedJson(rawJsonStr);
-      console.log("[JSON] Repaired JSON length:", repaired.length);
+      console.log("[JSON] Fallback 2: Truncation repair, length:", repaired.length);
 
       const parsed = JSON.parse(repaired);
       const validated = schema.parse(parsed);
-      console.log("[JSON] Repair successful!");
+      console.log("[JSON] Fallback 2 successful!");
       return { success: true, data: validated };
-    } catch (repairError) {
-      // 修復も失敗
-      console.error("[JSON] Repair also failed:", repairError);
-      return {
-        success: false,
-        error:
-          firstError instanceof Error ? firstError.message : String(firstError),
-      };
+    } catch {
+      // 続行
+
+      // ========================================
+      // フォールバック戦略 3: エラー位置特定修復
+      // ========================================
+      try {
+        const fixed = fixJsonByErrorPosition(jsonStr);
+        console.log("[JSON] Fallback 3: Error position fix");
+
+        const parsed = JSON.parse(fixed);
+        const validated = schema.parse(parsed);
+        console.log("[JSON] Fallback 3 successful!");
+        return { success: true, data: validated };
+      } catch {
+        // 続行
+
+        // ========================================
+        // フォールバック戦略 4: 最後の有効オブジェクトまで切り詰め
+        // ========================================
+        try {
+          const truncated = truncateToLastValidObject(jsonStr);
+          console.log("[JSON] Fallback 4: Truncate to last valid object");
+
+          const parsed = JSON.parse(truncated);
+          const validated = schema.parse(parsed);
+          console.log("[JSON] Fallback 4 successful!");
+          return { success: true, data: validated };
+        } catch (error4) {
+          // 全て失敗
+          console.error("[JSON] All fallbacks failed:", error4);
+          return {
+            success: false,
+            error:
+              error1 instanceof Error ? error1.message : String(error1),
+          };
+        }
+      }
     }
   }
 }
