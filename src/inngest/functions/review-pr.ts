@@ -15,8 +15,14 @@ import {
   clearContextCache,
 } from "@/lib/diff/context-extender";
 import { generateReview, formatForGitHubReview } from "@/lib/ai/review";
-import { submitReviewWithFallback, type ReviewComment } from "@/lib/github/review-submitter";
-import { generateQueriesFromDiff, searchWithMultipleQueries } from "@/lib/rag/search";
+import {
+  submitReviewWithFallback,
+  type ReviewComment,
+} from "@/lib/github/review-submitter";
+import {
+  generateQueriesFromDiff,
+  searchWithMultipleQueries,
+} from "@/lib/rag/search";
 import { buildSimpleContext } from "@/lib/rag/context-builder";
 import { getNamespaceStats } from "@/lib/pinecone/client";
 import {
@@ -183,43 +189,53 @@ export const reviewPR = inngest.createFunction(
     });
 
     // Step 3.5: Diffコンテキストを拡張（有効な場合）
-    const extendedDiffContent = await step.run("extend-diff-context", async () => {
-      if (!isContextExtensionEnabled()) {
-        console.log("[Inngest] Context extension disabled, using original diff");
-        return parsedData.filteredDiff;
+    const extendedDiffContent = await step.run(
+      "extend-diff-context",
+      async () => {
+        if (!isContextExtensionEnabled()) {
+          console.log(
+            "[Inngest] Context extension disabled, using original diff"
+          );
+          return parsedData.filteredDiff;
+        }
+
+        if (parsedData.files.length === 0) {
+          return parsedData.filteredDiff;
+        }
+
+        try {
+          const octokit = await getInstallationOctokit(installationId);
+          const fileProvider = createGitHubFileProvider(octokit, owner, repo);
+          const options = getContextOptionsFromEnv();
+
+          console.log(
+            `[Inngest] Extending diff context with ${options.contextLines} lines`
+          );
+
+          const result = await extendDiffContext(
+            parsedData.files,
+            headSha,
+            fileProvider,
+            options
+          );
+
+          console.log(
+            `[Inngest] Context extension: ${result.stats.filesProcessed} processed, ${result.stats.totalContextLinesAdded} lines added`
+          );
+
+          // キャッシュをクリア（メモリ解放）
+          clearContextCache();
+
+          return result.extendedDiff;
+        } catch (error) {
+          console.warn(
+            "[Inngest] Context extension failed, using original diff:",
+            error
+          );
+          return parsedData.filteredDiff;
+        }
       }
-
-      if (parsedData.files.length === 0) {
-        return parsedData.filteredDiff;
-      }
-
-      try {
-        const octokit = await getInstallationOctokit(installationId);
-        const fileProvider = createGitHubFileProvider(octokit, owner, repo);
-        const options = getContextOptionsFromEnv();
-
-        console.log(`[Inngest] Extending diff context with ${options.contextLines} lines`);
-
-        const result = await extendDiffContext(
-          parsedData.files,
-          headSha,
-          fileProvider,
-          options
-        );
-
-        console.log(
-          `[Inngest] Context extension: ${result.stats.filesProcessed} processed, ${result.stats.totalContextLinesAdded} lines added`
-        );
-
-        // キャッシュをクリア（メモリ解放）
-        clearContextCache();
-
-        return result.extendedDiff;
-      } catch (error) {
-        console.warn("[Inngest] Context extension failed, using original diff:", error);
-        return parsedData.filteredDiff;
-      }
-    });
+    );
 
     // Step 3.6: 依存関係分析（変更の影響範囲を分析）
     const impactAnalysis = await step.run(
@@ -283,9 +299,10 @@ export const reviewPR = inngest.createFunction(
           console.log(`[Inngest] Generated ${queries.length} RAG queries`);
 
           // 主要言語を検出
-          const primaryLanguage = parsedData.files.length > 0
-            ? detectLanguage(parsedData.files[0].newPath)
-            : undefined;
+          const primaryLanguage =
+            parsedData.files.length > 0
+              ? detectLanguage(parsedData.files[0].newPath)
+              : undefined;
 
           // 検索実行
           const searchResults = await searchWithMultipleQueries(
@@ -300,7 +317,9 @@ export const reviewPR = inngest.createFunction(
             return null;
           }
 
-          console.log(`[Inngest] Found ${searchResults.length} relevant code chunks`);
+          console.log(
+            `[Inngest] Found ${searchResults.length} relevant code chunks`
+          );
 
           // コンテキストを構築
           return buildSimpleContext(searchResults);
@@ -313,19 +332,22 @@ export const reviewPR = inngest.createFunction(
     const ragContext = ragContextResult ?? undefined;
 
     // Step 5: 適応コンテキストを構築
-    const adaptiveContext = await step.run("build-adaptive-context", async () => {
-      try {
-        return await buildAdaptiveContext({
-          pullRequestId: dbSetup.pullRequestId,
-          repositoryId: dbSetup.repositoryId,
-          maxConversationEntries: 20,
-          includeLearningInsights: true,
-        });
-      } catch (error) {
-        console.warn("[Inngest] Failed to build adaptive context:", error);
-        return undefined;
+    const adaptiveContext = await step.run(
+      "build-adaptive-context",
+      async () => {
+        try {
+          return await buildAdaptiveContext({
+            pullRequestId: dbSetup.pullRequestId,
+            repositoryId: dbSetup.repositoryId,
+            maxConversationEntries: 20,
+            includeLearningInsights: true,
+          });
+        } catch (error) {
+          console.warn("[Inngest] Failed to build adaptive context:", error);
+          return undefined;
+        }
       }
-    });
+    );
 
     // Step 6: AIレビューを生成
     const aiReview = await step.run("generate-review", async () => {
@@ -351,11 +373,13 @@ export const reviewPR = inngest.createFunction(
     });
 
     // Step 7: クロスPR重複排除（Phase 1）- 一時的に無効化
-    const filteredReview = await step.run("cross-pr-deduplication", async () => {
-      // 一時的に無効化 - 全てのコメントをそのまま返す
-      return aiReview;
+    const filteredReview = await step.run(
+      "cross-pr-deduplication",
+      async () => {
+        // 一時的に無効化 - 全てのコメントをそのまま返す
+        return aiReview;
 
-      /* クロスPR重複排除（コメントアウト）
+        /* クロスPR重複排除（コメントアウト）
       if (!aiReview || aiReview.inlineComments.length === 0) {
         return aiReview;
       }
@@ -413,7 +437,8 @@ export const reviewPR = inngest.createFunction(
         return aiReview;
       }
       */
-    });
+      }
+    );
 
     // Step 8: レビュー結果をDBに保存
     await step.run("save-review", async () => {
@@ -497,7 +522,11 @@ export const reviewPR = inngest.createFunction(
           );
         }
 
-        console.log(`[Inngest] Saved ${review.inlineComments.length + 1} conversation entries`);
+        console.log(
+          `[Inngest] Saved ${
+            review.inlineComments.length + 1
+          } conversation entries`
+        );
       } catch (error) {
         console.warn("[Inngest] Failed to save conversation history:", error);
       }
@@ -516,7 +545,11 @@ export const reviewPR = inngest.createFunction(
 
       // 影響分析レポートを追加（高影響または破壊的変更がある場合のみ）
       let reviewBody = githubReview.body;
-      if (impactAnalysis && (impactAnalysis.impactScore >= 40 || impactAnalysis.breakingChanges.length > 0)) {
+      if (
+        impactAnalysis &&
+        (impactAnalysis.impactScore >= 40 ||
+          impactAnalysis.breakingChanges.length > 0)
+      ) {
         const impactReport = formatImpactAnalysis(impactAnalysis);
         reviewBody = `${githubReview.body}\n\n---\n\n${impactReport}`;
       }
@@ -524,7 +557,10 @@ export const reviewPR = inngest.createFunction(
       console.log("[Inngest] Posting review with comments:", {
         commentsCount: githubReview.comments.length,
         event: githubReview.event,
-        includesImpactAnalysis: impactAnalysis !== null && (impactAnalysis.impactScore >= 40 || impactAnalysis.breakingChanges.length > 0),
+        includesImpactAnalysis:
+          impactAnalysis !== null &&
+          (impactAnalysis.impactScore >= 40 ||
+            impactAnalysis.breakingChanges.length > 0),
       });
 
       // 新しいsubmitterを使用（422エラーハンドリング付き）
@@ -551,19 +587,22 @@ export const reviewPR = inngest.createFunction(
 
       if (!result.success) {
         // エラーを追跡
-        await handleInngestError(new Error(`Failed to post review: ${result.error}`), {
-          context: {
-            operation: "post-review",
-            repository: { owner, name: repo },
-            pullRequest: { number: prNumber },
-          },
-          prInfo: {
-            installationId,
-            owner,
-            repo,
-            prNumber,
-          },
-        });
+        await handleInngestError(
+          new Error(`Failed to post review: ${result.error}`),
+          {
+            context: {
+              operation: "post-review",
+              repository: { owner, name: repo },
+              pullRequest: { number: prNumber },
+            },
+            prInfo: {
+              installationId,
+              owner,
+              repo,
+              prNumber,
+            },
+          }
+        );
         throw new Error(`Failed to post review: ${result.error}`);
       }
     });
@@ -571,7 +610,11 @@ export const reviewPR = inngest.createFunction(
     // Step 11: コメント発生を永続化（Phase 1）
     await step.run("record-comment-occurrences", async () => {
       const review = filteredReview as typeof aiReview;
-      if (!review || !review.inlineComments || review.inlineComments.length === 0) {
+      if (
+        !review ||
+        !review.inlineComments ||
+        review.inlineComments.length === 0
+      ) {
         return;
       }
 
@@ -585,7 +628,11 @@ export const reviewPR = inngest.createFunction(
             filePath: comment.path,
             lineNumber: comment.endLine,
             commentBody: comment.body,
-            severity: comment.severity as "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
+            severity: comment.severity as
+              | "CRITICAL"
+              | "IMPORTANT"
+              | "INFO"
+              | "NITPICK",
           });
         }
 
@@ -623,7 +670,10 @@ export const reviewPR = inngest.createFunction(
           headSha,
           reviewId: dbSetup.reviewId,
           useAI: process.env.TEST_GENERATION_USE_AI !== "false",
-          maxFunctions: parseInt(process.env.TEST_GENERATION_MAX_FUNCTIONS || "5", 10),
+          maxFunctions: parseInt(
+            process.env.TEST_GENERATION_MAX_FUNCTIONS || "5",
+            10
+          ),
         },
       });
 
@@ -656,7 +706,8 @@ export const reviewPR = inngest.createFunction(
           headSha,
           reviewId: dbSetup.reviewId,
           useAI: process.env.DOC_GENERATION_USE_AI !== "false",
-          language: (process.env.DOC_GENERATION_LANGUAGE as "ja" | "en") || "ja",
+          language:
+            (process.env.DOC_GENERATION_LANGUAGE as "ja" | "en") || "ja",
           analyzeReadme: process.env.DOC_ANALYZE_README !== "false",
         },
       });
@@ -689,12 +740,17 @@ export const reviewPR = inngest.createFunction(
           prNumber,
           headSha,
           reviewId: dbSetup.reviewId,
-          language: (process.env.PERFORMANCE_ANALYSIS_LANGUAGE as "ja" | "en") || "ja",
+          language:
+            (process.env.PERFORMANCE_ANALYSIS_LANGUAGE as "ja" | "en") || "ja",
           detectNPlusOne: process.env.PERFORMANCE_DETECT_NPLUSONE !== "false",
-          detectMemoryLeaks: process.env.PERFORMANCE_DETECT_MEMORY_LEAKS !== "false",
-          detectReactRerenders: process.env.PERFORMANCE_DETECT_REACT_RERENDERS !== "false",
-          detectInefficientLoops: process.env.PERFORMANCE_DETECT_INEFFICIENT_LOOPS !== "false",
-          detectLargeBundleImports: process.env.PERFORMANCE_DETECT_LARGE_BUNDLES !== "false",
+          detectMemoryLeaks:
+            process.env.PERFORMANCE_DETECT_MEMORY_LEAKS !== "false",
+          detectReactRerenders:
+            process.env.PERFORMANCE_DETECT_REACT_RERENDERS !== "false",
+          detectInefficientLoops:
+            process.env.PERFORMANCE_DETECT_INEFFICIENT_LOOPS !== "false",
+          detectLargeBundleImports:
+            process.env.PERFORMANCE_DETECT_LARGE_BUNDLES !== "false",
         },
       });
 
@@ -727,11 +783,17 @@ export const reviewPR = inngest.createFunction(
           headSha,
           reviewId: dbSetup.reviewId,
           language: (process.env.SECURITY_SCAN_LANGUAGE as "ja" | "en") || "ja",
-          detectSqlInjection: process.env.SECURITY_DETECT_SQL_INJECTION !== "false",
+          detectSqlInjection:
+            process.env.SECURITY_DETECT_SQL_INJECTION !== "false",
           detectXss: process.env.SECURITY_DETECT_XSS !== "false",
           detectSecrets: process.env.SECURITY_DETECT_SECRETS !== "false",
           detectAuthIssues: process.env.SECURITY_DETECT_AUTH_ISSUES !== "false",
-          minSeverity: (process.env.SECURITY_MIN_SEVERITY as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW") || "MEDIUM",
+          minSeverity:
+            (process.env.SECURITY_MIN_SEVERITY as
+              | "CRITICAL"
+              | "HIGH"
+              | "MEDIUM"
+              | "LOW") || "MEDIUM",
           maxIssues: parseInt(process.env.SECURITY_MAX_ISSUES || "20", 10),
         },
       });
@@ -874,38 +936,41 @@ export const reviewPRIncremental = inngest.createFunction(
     });
 
     // Step 4.5: Diffコンテキストを拡張（有効な場合）
-    const extendedDiffContent = await step.run("extend-diff-context", async () => {
-      if (!isContextExtensionEnabled()) {
-        return parsedData.filteredDiff;
+    const extendedDiffContent = await step.run(
+      "extend-diff-context",
+      async () => {
+        if (!isContextExtensionEnabled()) {
+          return parsedData.filteredDiff;
+        }
+
+        if (parsedData.files.length === 0) {
+          return parsedData.filteredDiff;
+        }
+
+        try {
+          const octokit = await getInstallationOctokit(installationId);
+          const fileProvider = createGitHubFileProvider(octokit, owner, repo);
+          const options = getContextOptionsFromEnv();
+
+          const result = await extendDiffContext(
+            parsedData.files,
+            afterSha,
+            fileProvider,
+            options
+          );
+
+          console.log(
+            `[Inngest] Incremental context extension: ${result.stats.filesProcessed} processed`
+          );
+
+          clearContextCache();
+          return result.extendedDiff;
+        } catch (error) {
+          console.warn("[Inngest] Context extension failed:", error);
+          return parsedData.filteredDiff;
+        }
       }
-
-      if (parsedData.files.length === 0) {
-        return parsedData.filteredDiff;
-      }
-
-      try {
-        const octokit = await getInstallationOctokit(installationId);
-        const fileProvider = createGitHubFileProvider(octokit, owner, repo);
-        const options = getContextOptionsFromEnv();
-
-        const result = await extendDiffContext(
-          parsedData.files,
-          afterSha,
-          fileProvider,
-          options
-        );
-
-        console.log(
-          `[Inngest] Incremental context extension: ${result.stats.filesProcessed} processed`
-        );
-
-        clearContextCache();
-        return result.extendedDiff;
-      } catch (error) {
-        console.warn("[Inngest] Context extension failed:", error);
-        return parsedData.filteredDiff;
-      }
-    });
+    );
 
     // Step 4.6: 依存関係分析（変更の影響範囲を分析）
     const impactAnalysis = await step.run(
@@ -950,27 +1015,30 @@ export const reviewPRIncremental = inngest.createFunction(
     );
 
     // Step 5: 適応コンテキストを構築
-    const adaptiveContext = await step.run("build-adaptive-context", async () => {
-      try {
-        // リポジトリIDを取得
-        const pr = await prisma.pullRequest.findUnique({
-          where: { id: dbSetup.pullRequestId },
-          select: { repositoryId: true },
-        });
+    const adaptiveContext = await step.run(
+      "build-adaptive-context",
+      async () => {
+        try {
+          // リポジトリIDを取得
+          const pr = await prisma.pullRequest.findUnique({
+            where: { id: dbSetup.pullRequestId },
+            select: { repositoryId: true },
+          });
 
-        if (!pr) return undefined;
+          if (!pr) return undefined;
 
-        return await buildAdaptiveContext({
-          pullRequestId: dbSetup.pullRequestId,
-          repositoryId: pr.repositoryId,
-          maxConversationEntries: 20,
-          includeLearningInsights: true,
-        });
-      } catch (error) {
-        console.warn("[Inngest] Failed to build adaptive context:", error);
-        return undefined;
+          return await buildAdaptiveContext({
+            pullRequestId: dbSetup.pullRequestId,
+            repositoryId: pr.repositoryId,
+            maxConversationEntries: 20,
+            includeLearningInsights: true,
+          });
+        } catch (error) {
+          console.warn("[Inngest] Failed to build adaptive context:", error);
+          return undefined;
+        }
       }
-    });
+    );
 
     // Step 6: AIレビューを生成
     const aiReview = await step.run("generate-incremental-review", async () => {
@@ -994,11 +1062,13 @@ export const reviewPRIncremental = inngest.createFunction(
     });
 
     // Step 7: クロスPR重複排除（Phase 1）- 一時的に無効化
-    const filteredIncrementalReview = await step.run("cross-pr-deduplication", async () => {
-      // 一時的に無効化 - 全てのコメントをそのまま返す
-      return aiReview;
+    const filteredIncrementalReview = await step.run(
+      "cross-pr-deduplication",
+      async () => {
+        // 一時的に無効化 - 全てのコメントをそのまま返す
+        return aiReview;
 
-      /* クロスPR重複排除（コメントアウト）
+        /* クロスPR重複排除（コメントアウト）
       if (!aiReview || aiReview.inlineComments.length === 0) {
         return aiReview;
       }
@@ -1050,7 +1120,8 @@ export const reviewPRIncremental = inngest.createFunction(
         return aiReview;
       }
       */
-    });
+      }
+    );
 
     // Step 8: 結果をDBに保存
     await step.run("save-review", async () => {
@@ -1095,6 +1166,7 @@ export const reviewPRIncremental = inngest.createFunction(
     });
 
     // Step 9: 会話履歴を保存
+    // テストしています
     await step.run("save-conversation-history", async () => {
       const review = filteredIncrementalReview as typeof aiReview;
       if (!review || !review.result) return;
@@ -1128,7 +1200,11 @@ export const reviewPRIncremental = inngest.createFunction(
           );
         }
 
-        console.log(`[Inngest] Saved ${review.inlineComments.length + 1} conversation entries (incremental)`);
+        console.log(
+          `[Inngest] Saved ${
+            review.inlineComments.length + 1
+          } conversation entries (incremental)`
+        );
       } catch (error) {
         console.warn("[Inngest] Failed to save conversation history:", error);
       }
@@ -1144,7 +1220,11 @@ export const reviewPRIncremental = inngest.createFunction(
 
       // 影響分析レポートを追加（高影響または破壊的変更がある場合のみ）
       let impactSection = "";
-      if (impactAnalysis && (impactAnalysis.impactScore >= 40 || impactAnalysis.breakingChanges.length > 0)) {
+      if (
+        impactAnalysis &&
+        (impactAnalysis.impactScore >= 40 ||
+          impactAnalysis.breakingChanges.length > 0)
+      ) {
         impactSection = `\n\n---\n\n${formatImpactAnalysis(impactAnalysis)}`;
       }
 
@@ -1163,7 +1243,10 @@ ${githubReview.body}${impactSection}`;
       console.log("[Inngest] Posting incremental review with comments:", {
         commentsCount: githubReview.comments.length,
         event: githubReview.event,
-        includesImpactAnalysis: impactAnalysis !== null && (impactAnalysis.impactScore >= 40 || impactAnalysis.breakingChanges.length > 0),
+        includesImpactAnalysis:
+          impactAnalysis !== null &&
+          (impactAnalysis.impactScore >= 40 ||
+            impactAnalysis.breakingChanges.length > 0),
       });
 
       // 新しいsubmitterを使用（422エラーハンドリング付き）
@@ -1190,19 +1273,22 @@ ${githubReview.body}${impactSection}`;
 
       if (!result.success) {
         // エラーを追跡
-        await handleInngestError(new Error(`Failed to post incremental review: ${result.error}`), {
-          context: {
-            operation: "post-incremental-review",
-            repository: { owner, name: repo },
-            pullRequest: { number: prNumber },
-          },
-          prInfo: {
-            installationId,
-            owner,
-            repo,
-            prNumber,
-          },
-        });
+        await handleInngestError(
+          new Error(`Failed to post incremental review: ${result.error}`),
+          {
+            context: {
+              operation: "post-incremental-review",
+              repository: { owner, name: repo },
+              pullRequest: { number: prNumber },
+            },
+            prInfo: {
+              installationId,
+              owner,
+              repo,
+              prNumber,
+            },
+          }
+        );
         throw new Error(`Failed to post incremental review: ${result.error}`);
       }
     });
@@ -1210,7 +1296,11 @@ ${githubReview.body}${impactSection}`;
     // Step 11: コメント発生を永続化（Phase 1）
     await step.run("record-comment-occurrences", async () => {
       const review = filteredIncrementalReview as typeof aiReview;
-      if (!review || !review.inlineComments || review.inlineComments.length === 0) {
+      if (
+        !review ||
+        !review.inlineComments ||
+        review.inlineComments.length === 0
+      ) {
         return;
       }
 
@@ -1223,7 +1313,11 @@ ${githubReview.body}${impactSection}`;
             filePath: comment.path,
             lineNumber: comment.endLine,
             commentBody: comment.body,
-            severity: comment.severity as "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
+            severity: comment.severity as
+              | "CRITICAL"
+              | "IMPORTANT"
+              | "INFO"
+              | "NITPICK",
           });
         }
 
@@ -1257,7 +1351,10 @@ ${githubReview.body}${impactSection}`;
           headSha: afterSha,
           reviewId: dbSetup.reviewId,
           useAI: process.env.TEST_GENERATION_USE_AI !== "false",
-          maxFunctions: parseInt(process.env.TEST_GENERATION_MAX_FUNCTIONS || "5", 10),
+          maxFunctions: parseInt(
+            process.env.TEST_GENERATION_MAX_FUNCTIONS || "5",
+            10
+          ),
         },
       });
 
@@ -1273,7 +1370,9 @@ ${githubReview.body}${impactSection}`;
       }
 
       if (parsedData.files.length === 0) {
-        console.log("[Inngest] No files for documentation analysis (incremental)");
+        console.log(
+          "[Inngest] No files for documentation analysis (incremental)"
+        );
         return { triggered: false };
       }
 
@@ -1287,7 +1386,8 @@ ${githubReview.body}${impactSection}`;
           headSha: afterSha,
           reviewId: dbSetup.reviewId,
           useAI: process.env.DOC_GENERATION_USE_AI !== "false",
-          language: (process.env.DOC_GENERATION_LANGUAGE as "ja" | "en") || "ja",
+          language:
+            (process.env.DOC_GENERATION_LANGUAGE as "ja" | "en") || "ja",
           analyzeReadme: process.env.DOC_ANALYZE_README !== "false",
         },
       });
@@ -1304,7 +1404,9 @@ ${githubReview.body}${impactSection}`;
       }
 
       if (parsedData.files.length === 0) {
-        console.log("[Inngest] No files for performance analysis (incremental)");
+        console.log(
+          "[Inngest] No files for performance analysis (incremental)"
+        );
         return { triggered: false };
       }
 
@@ -1317,12 +1419,17 @@ ${githubReview.body}${impactSection}`;
           prNumber,
           headSha: afterSha,
           reviewId: dbSetup.reviewId,
-          language: (process.env.PERFORMANCE_ANALYSIS_LANGUAGE as "ja" | "en") || "ja",
+          language:
+            (process.env.PERFORMANCE_ANALYSIS_LANGUAGE as "ja" | "en") || "ja",
           detectNPlusOne: process.env.PERFORMANCE_DETECT_NPLUSONE !== "false",
-          detectMemoryLeaks: process.env.PERFORMANCE_DETECT_MEMORY_LEAKS !== "false",
-          detectReactRerenders: process.env.PERFORMANCE_DETECT_REACT_RERENDERS !== "false",
-          detectInefficientLoops: process.env.PERFORMANCE_DETECT_INEFFICIENT_LOOPS !== "false",
-          detectLargeBundleImports: process.env.PERFORMANCE_DETECT_LARGE_BUNDLES !== "false",
+          detectMemoryLeaks:
+            process.env.PERFORMANCE_DETECT_MEMORY_LEAKS !== "false",
+          detectReactRerenders:
+            process.env.PERFORMANCE_DETECT_REACT_RERENDERS !== "false",
+          detectInefficientLoops:
+            process.env.PERFORMANCE_DETECT_INEFFICIENT_LOOPS !== "false",
+          detectLargeBundleImports:
+            process.env.PERFORMANCE_DETECT_LARGE_BUNDLES !== "false",
         },
       });
 
@@ -1352,11 +1459,17 @@ ${githubReview.body}${impactSection}`;
           headSha: afterSha,
           reviewId: dbSetup.reviewId,
           language: (process.env.SECURITY_SCAN_LANGUAGE as "ja" | "en") || "ja",
-          detectSqlInjection: process.env.SECURITY_DETECT_SQL_INJECTION !== "false",
+          detectSqlInjection:
+            process.env.SECURITY_DETECT_SQL_INJECTION !== "false",
           detectXss: process.env.SECURITY_DETECT_XSS !== "false",
           detectSecrets: process.env.SECURITY_DETECT_SECRETS !== "false",
           detectAuthIssues: process.env.SECURITY_DETECT_AUTH_ISSUES !== "false",
-          minSeverity: (process.env.SECURITY_MIN_SEVERITY as "CRITICAL" | "HIGH" | "MEDIUM" | "LOW") || "MEDIUM",
+          minSeverity:
+            (process.env.SECURITY_MIN_SEVERITY as
+              | "CRITICAL"
+              | "HIGH"
+              | "MEDIUM"
+              | "LOW") || "MEDIUM",
           maxIssues: parseInt(process.env.SECURITY_MAX_ISSUES || "20", 10),
         },
       });
