@@ -444,6 +444,7 @@ export async function generateReview(
       );
     }
     // 常にdeduplicationResult.commentsを使用（ソート済み・正規化済み）
+    // テストするためのコメント
     filteredComments = deduplicationResult.comments;
   }
 
