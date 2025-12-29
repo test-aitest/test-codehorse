@@ -112,6 +112,8 @@ export type Events = {
       commentId: number;
       commentBody: string;
       commentAuthor: string;
+      /** コメント投稿者のGitHub数値ID */
+      commentAuthorId: number;
       inReplyToId?: number;
     };
   };
@@ -281,6 +283,26 @@ export type Events = {
       repositoryId: string;
       /** 有効期限（日数） */
       expirationDays?: number;
+    };
+  };
+
+  // Push Notification Events
+  "push/notification.chat-response": {
+    data: {
+      /** コメント投稿者のGitHubユーザー名 */
+      commentAuthor: string;
+      /** コメント投稿者のGitHub数値ID */
+      commentAuthorId: number;
+      /** リポジトリオーナー */
+      owner: string;
+      /** リポジトリ名 */
+      repo: string;
+      /** PR番号 */
+      prNumber: number;
+      /** AI応答のプレビュー（先頭100文字程度） */
+      responsePreview: string;
+      /** GitHubコメントURL */
+      commentUrl: string;
     };
   };
 };
