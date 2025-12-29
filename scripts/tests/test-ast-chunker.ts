@@ -3,7 +3,7 @@
  * 使用方法: npx tsx scripts/test-ast-chunker.ts
  */
 
-import { chunkTypeScriptFile } from "../src/lib/indexer/ast-chunker";
+import { chunkTypeScriptFile } from "../../src/lib/indexer/ast-chunker";
 
 // テスト用のTypeScriptコード
 const testCode = `

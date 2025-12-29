@@ -7,6 +7,7 @@ import { generateVectorId } from "@/lib/pinecone/types";
 import type { VectorRecord, CodeChunkMetadata } from "@/lib/pinecone/types";
 import type { CodeChunk } from "./types";
 import { shouldReviewFile } from "@/lib/diff/filter";
+import { indexRepositoryDependencies } from "@/lib/analysis/dependency-indexer";
 
 // インデックス対象の最大ファイルサイズ（バイト）
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
@@ -77,6 +78,9 @@ export async function indexRepository(
 
     console.log(`[Indexer] Found ${indexableFiles.length} indexable files`);
 
+    // 依存関係インデキシング用にファイル内容を収集
+    const allFileContents: Array<{ path: string; content: string }> = [];
+
     // ファイルをバッチ処理
     for (let i = 0; i < indexableFiles.length; i += FILE_BATCH_SIZE) {
       const batch = indexableFiles.slice(i, i + FILE_BATCH_SIZE);
@@ -105,6 +109,9 @@ export async function indexRepository(
       for (const file of fileContents) {
         if (!file) continue;
 
+        // 依存関係インデキシング用に収集
+        allFileContents.push(file);
+
         try {
           const indexableFile = createIndexableFile(file.path, file.content);
           const result = chunkFile(indexableFile);
@@ -130,6 +137,25 @@ export async function indexRepository(
       console.log(
         `[Indexer] Progress: ${Math.min(i + FILE_BATCH_SIZE, indexableFiles.length)}/${indexableFiles.length} files`
       );
+    }
+
+    // 依存関係をインデキシング（Phase 3）
+    if (allFileContents.length > 0) {
+      try {
+        const depResult = await indexRepositoryDependencies(
+          repositoryId,
+          allFileContents
+        );
+        console.log(
+          `[Indexer] Dependencies indexed: ${depResult.totalFiles} files, ${depResult.totalImports} imports, ${depResult.totalExports} exports`
+        );
+        if (depResult.errors.length > 0) {
+          errors.push(...depResult.errors.slice(0, 10)); // 最大10件のエラーを追加
+        }
+      } catch (depError) {
+        console.error(`[Indexer] Dependency indexing failed:`, depError);
+        errors.push(`Dependency indexing failed: ${depError}`);
+      }
     }
 
     // ステータスを COMPLETED に更新

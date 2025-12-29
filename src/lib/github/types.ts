@@ -30,13 +30,15 @@ export interface WebhookPayload {
 }
 
 export interface PullRequestPayload extends WebhookPayload {
-  action: "opened" | "synchronize" | "closed" | "reopened" | "edited";
+  action: "opened" | "synchronize" | "closed" | "reopened" | "edited" | "ready_for_review" | "converted_to_draft";
   number: number;
   pull_request: {
     id: number;
     number: number;
     title: string;
     state: string;
+    /** ドラフトPRかどうか (Phase 7) */
+    draft?: boolean;
     user: {
       login: string;
       id: number;
