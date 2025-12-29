@@ -12,15 +12,15 @@ export type RelevanceCategory = z.infer<typeof RelevanceCategorySchema>;
 export const InlineCommentSchema = z.object({
   path: z.string().describe("ファイルパス"),
   endLine: z.number().describe("コメント対象の終了行番号"),
-  startLine: z.number().optional().describe("複数行コメントの開始行番号（省略時はendLineと同じ）"),
+  startLine: z.number().nullable().describe("複数行コメントの開始行番号（単一行の場合はnull）"),
   body: z.string().describe("コメント内容（Markdown形式）"),
   severity: SeveritySchema.describe("問題の深刻度"),
-  suggestion: z.string().optional().describe("修正後のコード（行番号なし、純粋なコードのみ）"),
-  suggestionStartLine: z.number().optional().describe("修正対象の開始行番号"),
-  suggestionEndLine: z.number().optional().describe("修正対象の終了行番号"),
+  suggestion: z.string().describe("修正後のコード（行番号なし、純粋なコードのみ。提案がない場合は空文字列）"),
+  suggestionStartLine: z.number().nullable().describe("修正対象の開始行番号（suggestionが空の場合はnull）"),
+  suggestionEndLine: z.number().nullable().describe("修正対象の終了行番号（suggestionが空の場合はnull）"),
   // 関連性スコアリング（Phase 4）
-  relevanceScore: z.number().min(1).max(10).optional().describe("提案の関連性スコア（1-10）"),
-  relevanceCategory: RelevanceCategorySchema.optional().describe("関連性カテゴリ（HIGH/MEDIUM/LOW）"),
+  relevanceScore: z.number().min(1).max(10).describe("提案の関連性スコア（1-10）"),
+  relevanceCategory: RelevanceCategorySchema.describe("関連性カテゴリ（HIGH/MEDIUM/LOW）"),
 });
 export type InlineComment = z.infer<typeof InlineCommentSchema>;
 
@@ -48,19 +48,6 @@ export function getRelevanceCategory(score: number): RelevanceCategory {
 }
 
 /**
- * コメントにカテゴリを付与（スコアが存在する場合）
- */
-export function enrichCommentWithCategory(comment: InlineComment): InlineComment {
-  if (comment.relevanceScore !== undefined && comment.relevanceCategory === undefined) {
-    return {
-      ...comment,
-      relevanceCategory: getRelevanceCategory(comment.relevanceScore),
-    };
-  }
-  return comment;
-}
-
-/**
  * コメントをスコアでフィルタリング
  */
 export function filterByRelevanceScore(
@@ -74,16 +61,10 @@ export function filterByRelevanceScore(
   const filtered: InlineComment[] = [];
 
   for (const comment of comments) {
-    // スコアが無い場合は採用（後方互換性）
-    if (comment.relevanceScore === undefined) {
-      accepted.push(enrichCommentWithCategory(comment));
-      continue;
-    }
-
     if (comment.relevanceScore >= minScore) {
-      accepted.push(enrichCommentWithCategory(comment));
+      accepted.push(comment);
     } else {
-      filtered.push(enrichCommentWithCategory(comment));
+      filtered.push(comment);
     }
   }
 

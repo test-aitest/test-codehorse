@@ -1,10 +1,10 @@
 import type { ParsedFile } from "../diff/types";
-import {
-  formatInlineCommentWithSuggestion,
-  isValidSuggestion,
-} from "../github/suggestion-formatter";
+import { formatInlineCommentWithSuggestion } from "../github/suggestion-formatter";
 import type { AdaptiveContext } from "./memory/types";
-import { buildAdaptivePromptSection, hasValidContext } from "./memory/context-builder";
+import {
+  buildAdaptivePromptSection,
+  hasValidContext,
+} from "./memory/context-builder";
 
 // システムプロンプト
 export const REVIEW_SYSTEM_PROMPT = `あなたは経験豊富なシニアソフトウェアエンジニアで、コードレビューのエキスパートです。
@@ -37,7 +37,8 @@ export function buildReviewPrompt(params: {
   ragContext?: string;
   adaptiveContext?: AdaptiveContext;
 }): string {
-  const { prTitle, prBody, files, diffContent, ragContext, adaptiveContext } = params;
+  const { prTitle, prBody, files, diffContent, ragContext, adaptiveContext } =
+    params;
 
   const fileList = files
     .map((f) => `- ${f.newPath} (${f.type}: +${f.additions}/-${f.deletions})`)
@@ -88,17 +89,36 @@ ${buildAdaptivePromptSection(adaptiveContext)}
 3. **comments**: 具体的なインラインコメント（問題点や改善提案）
 4. **diagram**: （必要な場合のみ）アーキテクチャの変更を示すMermaidダイアグラム
 
-コメントには必ず正確な行番号を指定してください。行番号はDiff内の新しいファイルの行番号を使用してください。
+## コメントの必須フィールド
+
+各コメントは以下のフィールドを**全て**含む必要があります（省略不可）：
+
+\`\`\`json
+{
+  "path": "ファイルパス（文字列）",
+  "endLine": "コメント対象の終了行番号（数値）",
+  "startLine": "複数行の場合は開始行番号、単一行の場合はnull",
+  "body": "コメント内容（文字列、Markdown形式）",
+  "severity": "CRITICAL | IMPORTANT | INFO | NITPICK のいずれか",
+  "suggestion": "修正後のコード（文字列）。提案がない場合は空文字列 \"\"",
+  "suggestionStartLine": "修正対象の開始行番号。suggestionが空の場合はnull",
+  "suggestionEndLine": "修正対象の終了行番号。suggestionが空の場合はnull",
+  "relevanceScore": "関連性スコア（1-10の数値）",
+  "relevanceCategory": "HIGH | MEDIUM | LOW のいずれか"
+}
+\`\`\`
+
+**重要**: 全てのフィールドを必ず出力してください。フィールドを省略しないでください。
 
 ## 関連性スコアリング
 
 各コメントには関連性スコア（relevanceScore）を1-10で付けてください：
 
 ### スコア基準
-- **9-10 (HIGH)**: 必ず対応すべき重要な問題。セキュリティ、バグ、クラッシュの可能性
-- **7-8 (MEDIUM)**: 対応を推奨する問題。パフォーマンス、設計改善、ベストプラクティス
-- **5-6 (LOW)**: 参考程度の指摘。可読性向上、軽微な改善
-- **1-4**: 非常に軽微またはPRの目的に関係ない指摘
+- **9-10 → relevanceCategory: "HIGH"**: 必ず対応すべき重要な問題。セキュリティ、バグ、クラッシュの可能性
+- **7-8 → relevanceCategory: "MEDIUM"**: 対応を推奨する問題。パフォーマンス、設計改善、ベストプラクティス
+- **5-6 → relevanceCategory: "LOW"**: 参考程度の指摘。可読性向上、軽微な改善
+- **1-4 → relevanceCategory: "LOW"**: 非常に軽微またはPRの目的に関係ない指摘
 
 ### 評価観点
 1. **PRの目的との関連性**: この指摘はPRの変更内容に直接関係するか？
@@ -140,12 +160,13 @@ ${summary}
 `;
 
   for (const file of walkthrough) {
-    const typeEmoji = {
-      add: "🆕",
-      modify: "📝",
-      delete: "🗑️",
-      rename: "📛",
-    }[file.changeType] || "📄";
+    const typeEmoji =
+      {
+        add: "🆕",
+        modify: "📝",
+        delete: "🗑️",
+        rename: "📛",
+      }[file.changeType] || "📄";
     comment += `| \`${file.path}\` | ${typeEmoji} ${file.changeType} | ${file.summary} |\n`;
   }
 
@@ -184,19 +205,17 @@ ${diagram}
 export function formatInlineComment(params: {
   body: string;
   severity: string;
-  suggestion?: string;
-  relevanceScore?: number;
-  relevanceCategory?: string;
+  suggestion: string;
+  relevanceScore: number;
+  relevanceCategory: string;
 }): string {
-  const { body, severity, suggestion, relevanceScore, relevanceCategory } = params;
-
-  // 有効なsuggestionがある場合のみsuggestion blockを使用
-  const validSuggestion = isValidSuggestion(suggestion) ? suggestion : undefined;
+  const { body, severity, suggestion, relevanceScore, relevanceCategory } =
+    params;
 
   return formatInlineCommentWithSuggestion({
     body,
     severity,
-    suggestion: validSuggestion,
+    suggestion,
     relevanceScore,
     relevanceCategory,
   });

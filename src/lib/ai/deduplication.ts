@@ -488,7 +488,7 @@ export function mergeComments(
   // マージしたコメントを作成
   const merged: InlineComment = {
     ...kept,
-    startLine: startLine !== endLine ? startLine : undefined,
+    startLine: startLine !== endLine ? startLine : null,
     endLine,
   };
 

@@ -438,7 +438,9 @@ export async function generateReview(
 
     if (deduplicationResult.stats.duplicatesRemoved > 0) {
       console.log(
-        `[AI Review] Deduplication: ${formatDeduplicationSummary(deduplicationResult)}`
+        `[AI Review] Deduplication: ${formatDeduplicationSummary(
+          deduplicationResult
+        )}`
       );
       filteredComments = deduplicationResult.comments;
     }
@@ -471,7 +473,7 @@ export async function generateReview(
   const inlineComments = filteredComments.map((comment) => ({
     path: comment.path,
     endLine: comment.endLine,
-    startLine: comment.startLine,
+    startLine: comment.startLine ?? undefined,
     body: formatInlineComment({
       body: comment.body,
       severity: comment.severity,

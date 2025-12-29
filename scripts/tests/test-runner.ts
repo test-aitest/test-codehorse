@@ -309,7 +309,9 @@ test('formatInlineCommentWithSuggestion: Formats comment with suggestion', () =>
   const result = formatInlineCommentWithSuggestion({
     body: 'Consider using const',
     severity: 'INFO',
-    suggestion: 'const x = 1;'
+    suggestion: 'const x = 1;',
+    relevanceScore: 7,
+    relevanceCategory: 'MEDIUM',
   });
   if (!result.includes('[INFO]')) {
     throw new Error('Should contain severity marker');
@@ -323,7 +325,10 @@ test('formatInlineCommentWithSuggestion: Formats comment with suggestion', () =>
 test('formatInlineCommentWithSuggestion: Works without suggestion', () => {
   const result = formatInlineCommentWithSuggestion({
     body: 'This is just a comment',
-    severity: 'NITPICK'
+    severity: 'NITPICK',
+    suggestion: '',
+    relevanceScore: 5,
+    relevanceCategory: 'LOW',
   });
   if (!result.includes('[NITPICK]')) {
     throw new Error('Should contain severity marker');
@@ -342,7 +347,9 @@ console.log('--- Example 1: CRITICAL with Suggestion ---');
 console.log(formatInlineCommentWithSuggestion({
   body: 'セキュリティ上の問題: ユーザー入力をエスケープせずに使用しています。XSS攻撃の可能性があります。',
   severity: 'CRITICAL',
-  suggestion: 'const sanitizedInput = escapeHtml(userInput);'
+  suggestion: 'const sanitizedInput = escapeHtml(userInput);',
+  relevanceScore: 10,
+  relevanceCategory: 'HIGH',
 }));
 
 console.log('\n--- Example 2: IMPORTANT with Multi-line Suggestion ---');
@@ -354,20 +361,27 @@ console.log(formatInlineCommentWithSuggestion({
 } catch (error) {
   console.error('Failed to fetch:', error);
   throw error;
-}`
+}`,
+  relevanceScore: 8,
+  relevanceCategory: 'MEDIUM',
 }));
 
 console.log('\n--- Example 3: INFO without Suggestion ---');
 console.log(formatInlineCommentWithSuggestion({
   body: 'この関数は複雑なので、より小さな関数に分割することを検討してください。',
-  severity: 'INFO'
+  severity: 'INFO',
+  suggestion: '',
+  relevanceScore: 6,
+  relevanceCategory: 'LOW',
 }));
 
 console.log('\n--- Example 4: NITPICK ---');
 console.log(formatInlineCommentWithSuggestion({
   body: '変数名`x`は意味が分かりにくいです。`userCount`のような説明的な名前を推奨します。',
   severity: 'NITPICK',
-  suggestion: 'const userCount = users.length;'
+  suggestion: 'const userCount = users.length;',
+  relevanceScore: 4,
+  relevanceCategory: 'LOW',
 }));
 
 console.log('\n========================================');

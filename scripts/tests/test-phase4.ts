@@ -6,7 +6,6 @@
 
 import {
   getRelevanceCategory,
-  enrichCommentWithCategory,
   filterByRelevanceScore,
   RELEVANCE_CONFIG,
   type InlineComment,
@@ -29,6 +28,28 @@ function logTest(name: string, passed: boolean, error?: string) {
     console.log(`  ❌ ${name}${error ? `: ${error}` : ""}`);
     failedTests++;
   }
+}
+
+// モックコメント作成ヘルパー
+function createComment(
+  path: string,
+  endLine: number,
+  body: string,
+  severity: "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
+  relevanceScore: number
+): InlineComment {
+  return {
+    path,
+    endLine,
+    startLine: null,
+    body,
+    severity,
+    suggestion: "",
+    suggestionStartLine: null,
+    suggestionEndLine: null,
+    relevanceScore,
+    relevanceCategory: getRelevanceCategory(relevanceScore),
+  };
 }
 
 // ========================================
@@ -66,47 +87,6 @@ function testGetRelevanceCategory() {
 }
 
 // ========================================
-// enrichCommentWithCategory テスト
-// ========================================
-
-function testEnrichCommentWithCategory() {
-  console.log("\n🏷️ enrichCommentWithCategory テスト");
-
-  // スコアあり、カテゴリなし
-  const comment1: InlineComment = {
-    path: "test.ts",
-    endLine: 10,
-    body: "Test comment",
-    severity: "INFO",
-    relevanceScore: 9,
-  };
-  const enriched1 = enrichCommentWithCategory(comment1);
-  logTest("Adds HIGH category for score 9", enriched1.relevanceCategory === "HIGH");
-
-  // スコアなし
-  const comment2: InlineComment = {
-    path: "test.ts",
-    endLine: 10,
-    body: "Test comment",
-    severity: "INFO",
-  };
-  const enriched2 = enrichCommentWithCategory(comment2);
-  logTest("No category added when no score", enriched2.relevanceCategory === undefined);
-
-  // カテゴリ既存
-  const comment3: InlineComment = {
-    path: "test.ts",
-    endLine: 10,
-    body: "Test comment",
-    severity: "INFO",
-    relevanceScore: 9,
-    relevanceCategory: "LOW", // Already set
-  };
-  const enriched3 = enrichCommentWithCategory(comment3);
-  logTest("Preserves existing category", enriched3.relevanceCategory === "LOW");
-}
-
-// ========================================
 // filterByRelevanceScore テスト
 // ========================================
 
@@ -114,36 +94,29 @@ function testFilterByRelevanceScore() {
   console.log("\n🔍 filterByRelevanceScore テスト");
 
   const comments: InlineComment[] = [
-    { path: "a.ts", endLine: 1, body: "Critical bug", severity: "CRITICAL", relevanceScore: 10 },
-    { path: "b.ts", endLine: 2, body: "Important", severity: "IMPORTANT", relevanceScore: 7 },
-    { path: "c.ts", endLine: 3, body: "Info", severity: "INFO", relevanceScore: 5 },
-    { path: "d.ts", endLine: 4, body: "Nitpick", severity: "NITPICK", relevanceScore: 3 },
-    { path: "e.ts", endLine: 5, body: "No score", severity: "INFO" }, // No relevanceScore
+    createComment("a.ts", 1, "Critical bug", "CRITICAL", 10),
+    createComment("b.ts", 2, "Important", "IMPORTANT", 7),
+    createComment("c.ts", 3, "Info", "INFO", 5),
+    createComment("d.ts", 4, "Nitpick", "NITPICK", 3),
   ];
 
   // デフォルト閾値（5）でフィルタリング
   const result1 = filterByRelevanceScore(comments, 5);
-  logTest("Filters correctly with minScore 5", result1.accepted.length === 4);
+  logTest("Filters correctly with minScore 5", result1.accepted.length === 3);
   logTest("Filters low score comment", result1.filtered.length === 1);
   logTest("Filtered comment has score 3", result1.filtered[0].relevanceScore === 3);
 
   // 閾値7でフィルタリング
   const result2 = filterByRelevanceScore(comments, 7);
-  logTest("Filters correctly with minScore 7", result2.accepted.length === 3);
-  logTest("Accepts comments without score", result2.accepted.some(c => c.relevanceScore === undefined));
+  logTest("Filters correctly with minScore 7", result2.accepted.length === 2);
 
   // 閾値10でフィルタリング
   const result3 = filterByRelevanceScore(comments, 10);
-  logTest("Filters correctly with minScore 10", result3.accepted.length === 2); // score 10 + no score
+  logTest("Filters correctly with minScore 10", result3.accepted.length === 1);
 
   // 空配列
   const result4 = filterByRelevanceScore([], 5);
   logTest("Handles empty array", result4.accepted.length === 0 && result4.filtered.length === 0);
-
-  // カテゴリが付与されているか確認
-  const result5 = filterByRelevanceScore(comments, 1);
-  const hasCategories = result5.accepted.filter(c => c.relevanceScore !== undefined).every(c => c.relevanceCategory !== undefined);
-  logTest("Enriches comments with category", hasCategories);
 }
 
 // ========================================
@@ -157,13 +130,9 @@ function testFormatRelevanceScore() {
   const formatted1 = formatRelevanceScore(9, "HIGH");
   logTest("Formats score with category", formatted1.includes("9/10") && formatted1.includes("HIGH"));
 
-  // スコアのみ
-  const formatted2 = formatRelevanceScore(5, undefined);
-  logTest("Formats score without category", formatted2.includes("5/10"));
-
-  // スコアなし
-  const formatted3 = formatRelevanceScore(undefined, undefined);
-  logTest("Returns empty for undefined score", formatted3 === "");
+  // スコアとカテゴリあり（MEDIUM）
+  const formatted2 = formatRelevanceScore(5, "LOW");
+  logTest("Formats score with LOW category", formatted2.includes("5/10") && formatted2.includes("LOW"));
 }
 
 // ========================================
@@ -176,7 +145,6 @@ function testGetRelevanceCategoryEmoji() {
   logTest("HIGH has emoji", getRelevanceCategoryEmoji("HIGH") !== "");
   logTest("MEDIUM has emoji", getRelevanceCategoryEmoji("MEDIUM") !== "");
   logTest("LOW has emoji", getRelevanceCategoryEmoji("LOW") !== "");
-  logTest("Undefined returns empty", getRelevanceCategoryEmoji(undefined) === "");
 }
 
 // ========================================
@@ -190,6 +158,7 @@ function testFormatInlineCommentWithSuggestion() {
   const comment1 = formatInlineCommentWithSuggestion({
     body: "This is a bug",
     severity: "CRITICAL",
+    suggestion: "",
     relevanceScore: 10,
     relevanceCategory: "HIGH",
   });
@@ -198,24 +167,16 @@ function testFormatInlineCommentWithSuggestion() {
   logTest("Includes relevance category", comment1.includes("HIGH"));
   logTest("Includes body", comment1.includes("This is a bug"));
 
-  // スコアなし
-  const comment2 = formatInlineCommentWithSuggestion({
-    body: "Just a note",
-    severity: "INFO",
-  });
-  logTest("Works without score", comment2.includes("INFO") && comment2.includes("Just a note"));
-  logTest("No relevance info when no score", !comment2.includes("Relevance"));
-
   // Suggestionあり
-  const comment3 = formatInlineCommentWithSuggestion({
+  const comment2 = formatInlineCommentWithSuggestion({
     body: "Consider this",
     severity: "IMPORTANT",
     suggestion: "const x = 1;",
     relevanceScore: 8,
     relevanceCategory: "MEDIUM",
   });
-  logTest("Includes suggestion block", comment3.includes("```suggestion"));
-  logTest("Includes suggestion code", comment3.includes("const x = 1;"));
+  logTest("Includes suggestion block", comment2.includes("```suggestion"));
+  logTest("Includes suggestion code", comment2.includes("const x = 1;"));
 }
 
 // ========================================
@@ -227,9 +188,9 @@ function testIntegration() {
 
   // 完全なフローをテスト
   const comments: InlineComment[] = [
-    { path: "security.ts", endLine: 42, body: "SQL injection vulnerability", severity: "CRITICAL", relevanceScore: 10 },
-    { path: "perf.ts", endLine: 100, body: "N+1 query issue", severity: "IMPORTANT", relevanceScore: 8 },
-    { path: "style.ts", endLine: 50, body: "Consider using const", severity: "NITPICK", relevanceScore: 4 },
+    createComment("security.ts", 42, "SQL injection vulnerability", "CRITICAL", 10),
+    createComment("perf.ts", 100, "N+1 query issue", "IMPORTANT", 8),
+    createComment("style.ts", 50, "Consider using const", "NITPICK", 4),
   ];
 
   // フィルタリング
@@ -251,6 +212,7 @@ function testIntegration() {
     const formatted = formatInlineCommentWithSuggestion({
       body: securityComment.body,
       severity: securityComment.severity,
+      suggestion: securityComment.suggestion,
       relevanceScore: securityComment.relevanceScore,
       relevanceCategory: securityComment.relevanceCategory,
     });
@@ -279,7 +241,6 @@ async function main() {
 
   testConfiguration();
   testGetRelevanceCategory();
-  testEnrichCommentWithCategory();
   testFilterByRelevanceScore();
   testFormatRelevanceScore();
   testGetRelevanceCategoryEmoji();
