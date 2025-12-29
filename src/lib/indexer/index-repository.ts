@@ -7,6 +7,7 @@ import { generateVectorId } from "@/lib/pinecone/types";
 import type { VectorRecord, CodeChunkMetadata } from "@/lib/pinecone/types";
 import type { CodeChunk } from "./types";
 import { shouldReviewFile } from "@/lib/diff/filter";
+import { indexRepositoryDependencies } from "@/lib/analysis/dependency-indexer";
 
 // インデックス対象の最大ファイルサイズ（バイト）
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
@@ -51,6 +52,8 @@ export async function indexRepository(
   const errors: string[] = [];
   let filesProcessed = 0;
   let chunksIndexed = 0;
+  // 依存関係インデキシング用にファイル情報を収集
+  const collectedFiles: Array<{ path: string; content: string }> = [];
 
   try {
     console.log(`[Indexer] Starting indexing for ${owner}/${repo}`);
@@ -110,6 +113,8 @@ export async function indexRepository(
           const result = chunkFile(indexableFile);
           allChunks.push(...result.chunks);
           filesProcessed++;
+          // 依存関係インデキシング用にファイル情報を収集
+          collectedFiles.push({ path: file.path, content: file.content });
         } catch (error) {
           errors.push(`Failed to chunk ${file.path}: ${error}`);
         }
@@ -130,6 +135,18 @@ export async function indexRepository(
       console.log(
         `[Indexer] Progress: ${Math.min(i + FILE_BATCH_SIZE, indexableFiles.length)}/${indexableFiles.length} files`
       );
+    }
+
+    // 依存関係インデキシングを実行
+    if (collectedFiles.length > 0) {
+      try {
+        const depResult = await indexRepositoryDependencies(repositoryId, collectedFiles);
+        if (depResult.errors.length > 0) {
+          errors.push(...depResult.errors);
+        }
+      } catch (error) {
+        errors.push(`Dependency indexing failed: ${error}`);
+      }
     }
 
     // ステータスを COMPLETED に更新

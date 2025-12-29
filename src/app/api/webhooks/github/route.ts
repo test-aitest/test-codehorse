@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/github/verify-webhook";
 import { inngest } from "@/inngest/client";
+import { trackError } from "@/lib/errors";
 import type {
   GitHubEvent,
   PullRequestPayload,
@@ -90,7 +91,16 @@ export async function POST(request: NextRequest) {
         console.log("[Webhook] Unhandled event", { event });
     }
   } catch (error) {
-    console.error("[Webhook] Handler error", { event, error });
+    // エラーを追跡・記録（開発者フレンドリーなメッセージを生成）
+    await trackError(error, {
+      context: {
+        operation: "webhook",
+        event,
+        deliveryId,
+        repository: data.repository?.full_name,
+      },
+      logToConsole: true,
+    });
     // エラーでも200を返す（GitHubがリトライしないように）
   }
 
@@ -113,16 +123,19 @@ async function handlePullRequest(payload: PullRequestPayload) {
     return;
   }
 
+  const isDraft = pull_request.draft ?? false;
+
   console.log("[Webhook] Pull Request", {
     action,
     pr: pull_request.number,
     repo: repository.full_name,
     headSha: pull_request.head.sha,
+    isDraft,
   });
 
   switch (action) {
     case "opened":
-      // 新しいPRが開かれた → Inngestにフルレビューイベントを送信
+      // 新しいPRが開かれた → Inngestにレビューイベントを送信
       await inngest.send({
         name: "github/pull_request.opened",
         data: {
@@ -135,9 +148,10 @@ async function handlePullRequest(payload: PullRequestPayload) {
           baseSha: pull_request.base.sha,
           title: pull_request.title,
           author: pull_request.user.login,
+          isDraft, // Phase 7: ドラフト状態を追加
         },
       });
-      console.log("[Webhook] Sent PR opened event to Inngest");
+      console.log("[Webhook] Sent PR opened event to Inngest", { isDraft });
       break;
 
     case "synchronize":
@@ -152,9 +166,45 @@ async function handlePullRequest(payload: PullRequestPayload) {
           prNumber: pull_request.number,
           beforeSha: payload.before || pull_request.base.sha,
           afterSha: payload.after || pull_request.head.sha,
+          isDraft, // Phase 7: ドラフト状態を追加
         },
       });
-      console.log("[Webhook] Sent PR synchronize event to Inngest");
+      console.log("[Webhook] Sent PR synchronize event to Inngest", { isDraft });
+      break;
+
+    case "ready_for_review":
+      // Phase 7: ドラフトから準備完了に変更 → フルレビューを実行
+      await inngest.send({
+        name: "github/pull_request.ready_for_review",
+        data: {
+          installationId: installation.id,
+          repositoryId: repository.id,
+          owner: repository.owner.login,
+          repo: repository.name,
+          prNumber: pull_request.number,
+          headSha: pull_request.head.sha,
+          baseSha: pull_request.base.sha,
+          title: pull_request.title,
+          author: pull_request.user.login,
+        },
+      });
+      console.log("[Webhook] Sent PR ready_for_review event to Inngest");
+      break;
+
+    case "converted_to_draft":
+      // Phase 7: 準備完了からドラフトに変更
+      await inngest.send({
+        name: "github/pull_request.converted_to_draft",
+        data: {
+          installationId: installation.id,
+          repositoryId: repository.id,
+          owner: repository.owner.login,
+          repo: repository.name,
+          prNumber: pull_request.number,
+          headSha: pull_request.head.sha,
+        },
+      });
+      console.log("[Webhook] Sent PR converted_to_draft event to Inngest");
       break;
 
     case "closed":

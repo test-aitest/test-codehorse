@@ -21,7 +21,7 @@ import {
   formatReflectionSummary,
   type ReflectionResult,
 } from "./reflection";
-import { repairAndParseJSON, formatRepairSummary } from "./parser";
+import { parseAndValidateJson } from "./json-utils";
 import {
   isChunkingEnabled,
   createChunks,
@@ -188,24 +188,16 @@ async function generateChunkReview(params: {
     throw new Error(`AI API call failed: ${(apiError as Error).message}`);
   }
 
-  // JSONをパース（多段階修復付き）
-  const repairResult = repairAndParseJSON(text, ReviewResultSchema);
+  // JSONをパース
+  const parseResult = parseAndValidateJson(text, ReviewResultSchema);
 
-  if (repairResult.success && repairResult.data) {
-    if (repairResult.repairStrategy) {
-      console.log(
-        `[AI Review] Chunk JSON repaired using strategy: ${repairResult.repairStrategy}`
-      );
-    }
-    return { result: repairResult.data, tokenCount: totalTokens };
+  if (parseResult.success) {
+    return { result: parseResult.data, tokenCount: totalTokens };
   }
 
   console.error(
-    "[AI Review] Chunk failed to parse response after all repair attempts"
-  );
-  console.error(
-    "[AI Review] Repair summary:\n",
-    formatRepairSummary(repairResult)
+    "[AI Review] Chunk failed to parse response:",
+    parseResult.error
   );
 
   // フォールバック
