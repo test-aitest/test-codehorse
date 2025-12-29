@@ -25,11 +25,132 @@ export function extractJsonFromText(text: string): string {
 }
 
 /**
+ * JSON文字列内の不正なエスケープシーケンスを修復する
+ */
+export function fixBadEscapeSequences(jsonStr: string): string {
+  let result = "";
+  let i = 0;
+
+  while (i < jsonStr.length) {
+    const char = jsonStr[i];
+
+    if (char === "\\") {
+      // バックスラッシュの次の文字を確認
+      const nextChar = jsonStr[i + 1];
+
+      if (nextChar === undefined) {
+        // 文字列の最後にバックスラッシュがある場合は削除
+        i++;
+        continue;
+      }
+
+      // 有効なJSONエスケープシーケンス: \" \\ \/ \b \f \n \r \t \uXXXX
+      const validEscapes = ['"', "\\", "/", "b", "f", "n", "r", "t", "u"];
+
+      if (validEscapes.includes(nextChar)) {
+        if (nextChar === "u") {
+          // \uXXXX の形式をチェック
+          const hex = jsonStr.substring(i + 2, i + 6);
+          if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+            // 有効なUnicodeエスケープ
+            result += jsonStr.substring(i, i + 6);
+            i += 6;
+            continue;
+          } else {
+            // 無効なUnicodeエスケープ - バックスラッシュをエスケープ
+            result += "\\\\u";
+            i += 2;
+            continue;
+          }
+        }
+        // 有効なエスケープシーケンス
+        result += char + nextChar;
+        i += 2;
+      } else {
+        // 無効なエスケープシーケンス - バックスラッシュをエスケープするか削除
+        // 例: \a, \x, \1 などは無効
+        // バックスラッシュを二重にしてエスケープ
+        result += "\\\\" + nextChar;
+        i += 2;
+      }
+    } else if (char === "\n" || char === "\r" || char === "\t") {
+      // 文字列内の生の制御文字をエスケープシーケンスに置換
+      // ただし、JSON構造の一部（インデント等）かどうかを判定するのは難しいため、
+      // 文字列リテラル内かどうかを追跡する必要がある
+      // ここではシンプルに追加（後の処理で文字列内の場合のみ問題になる）
+      result += char;
+      i++;
+    } else {
+      result += char;
+      i++;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * JSON文字列内のリテラル制御文字をエスケープする
+ * （文字列リテラル内の生の改行やタブを修正）
+ */
+export function escapeControlCharsInStrings(jsonStr: string): string {
+  let result = "";
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = 0; i < jsonStr.length; i++) {
+    const char = jsonStr[i];
+
+    if (escapeNext) {
+      result += char;
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      result += char;
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      result += char;
+      continue;
+    }
+
+    // 文字列リテラル内の制御文字をエスケープ
+    if (inString) {
+      if (char === "\n") {
+        result += "\\n";
+        continue;
+      }
+      if (char === "\r") {
+        result += "\\r";
+        continue;
+      }
+      if (char === "\t") {
+        result += "\\t";
+        continue;
+      }
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+/**
  * 途中で切れたJSONを修復する
  * AIの応答がトークン制限で切れた場合に対応
  */
 export function repairTruncatedJson(jsonStr: string): string {
-  let repaired = jsonStr.trim();
+  // まず不正なエスケープシーケンスを修復
+  let repaired = fixBadEscapeSequences(jsonStr.trim());
+
+  // 文字列内の制御文字をエスケープ
+  repaired = escapeControlCharsInStrings(repaired);
 
   // 末尾の不完全な文字列を削除（途中で切れた文字列リテラル）
   // "key": "value が途中で切れている場合
@@ -109,7 +230,10 @@ export function parseAndValidateJson<T>(
   text: string,
   schema: z.ZodType<T>
 ): ParseResult<T> {
-  const jsonStr = extractJsonFromText(text);
+  const rawJsonStr = extractJsonFromText(text);
+
+  // 前処理: 不正なエスケープシーケンスと制御文字を修正
+  const jsonStr = escapeControlCharsInStrings(fixBadEscapeSequences(rawJsonStr));
 
   // 1. まず通常のパースを試みる
   try {
@@ -117,11 +241,11 @@ export function parseAndValidateJson<T>(
     const validated = schema.parse(parsed);
     return { success: true, data: validated };
   } catch (firstError) {
-    // 2. 失敗した場合、修復を試みる
+    // 2. 失敗した場合、追加の修復を試みる
     console.log("[JSON] Initial parse failed, attempting repair...");
 
     try {
-      const repaired = repairTruncatedJson(jsonStr);
+      const repaired = repairTruncatedJson(rawJsonStr);
       console.log("[JSON] Repaired JSON length:", repaired.length);
 
       const parsed = JSON.parse(repaired);
