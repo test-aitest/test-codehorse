@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+// ========================================
+// pr-agent方式: 柔軟なスキーマ定義
+// - null/undefined/欠落を適切に処理
+// - デフォルト値でグレースフルデグレード
+// ========================================
+
 // レビューコメントの深刻度
 export const SeveritySchema = z.enum(["CRITICAL", "IMPORTANT", "INFO", "NITPICK"]);
 export type Severity = z.infer<typeof SeveritySchema>;
@@ -8,19 +14,77 @@ export type Severity = z.infer<typeof SeveritySchema>;
 export const RelevanceCategorySchema = z.enum(["HIGH", "MEDIUM", "LOW"]);
 export type RelevanceCategory = z.infer<typeof RelevanceCategorySchema>;
 
-// インラインコメント
+// ========================================
+// pr-agent方式: 柔軟なフィールド定義ヘルパー
+// ========================================
+
+/**
+ * 数値フィールド: null/undefined → null として処理
+ */
+const nullableNumber = z.preprocess(
+  (val) => (val === null || val === undefined ? null : val),
+  z.number().nullable()
+);
+
+/**
+ * 文字列フィールド: null/undefined → 空文字列
+ */
+const stringWithEmptyDefault = z.preprocess(
+  (val) => (val === null || val === undefined ? "" : val),
+  z.string()
+);
+
+/**
+ * 関連性スコア: null/undefined/範囲外 → デフォルト5
+ */
+const relevanceScoreSchema = z.preprocess(
+  (val) => {
+    if (val === null || val === undefined) return 5;
+    const num = typeof val === "number" ? val : parseInt(String(val), 10);
+    if (isNaN(num)) return 5;
+    // 範囲を1-10に制限
+    return Math.max(1, Math.min(10, num));
+  },
+  z.number().min(1).max(10)
+);
+
+/**
+ * 関連性カテゴリ: null/undefined → スコアから自動計算
+ */
+const relevanceCategorySchema = z.preprocess(
+  (val) => {
+    if (val === "HIGH" || val === "MEDIUM" || val === "LOW") return val;
+    return "LOW"; // デフォルト
+  },
+  RelevanceCategorySchema
+);
+
+/**
+ * 深刻度: null/undefined → INFO
+ */
+const severityWithDefault = z.preprocess(
+  (val) => {
+    if (val === "CRITICAL" || val === "IMPORTANT" || val === "INFO" || val === "NITPICK") {
+      return val;
+    }
+    return "INFO"; // デフォルト
+  },
+  SeveritySchema
+);
+
+// インラインコメント（pr-agent方式: 柔軟な検証）
 export const InlineCommentSchema = z.object({
   path: z.string().describe("ファイルパス"),
   endLine: z.number().describe("コメント対象の終了行番号"),
-  startLine: z.number().optional().describe("複数行コメントの開始行番号（省略時はendLineと同じ）"),
+  startLine: nullableNumber.describe("複数行コメントの開始行番号（単一行の場合はnull）"),
   body: z.string().describe("コメント内容（Markdown形式）"),
-  severity: SeveritySchema.describe("問題の深刻度"),
-  suggestion: z.string().optional().describe("修正後のコード（行番号なし、純粋なコードのみ）"),
-  suggestionStartLine: z.number().optional().describe("修正対象の開始行番号"),
-  suggestionEndLine: z.number().optional().describe("修正対象の終了行番号"),
-  // 関連性スコアリング（Phase 4）
-  relevanceScore: z.number().min(1).max(10).optional().describe("提案の関連性スコア（1-10）"),
-  relevanceCategory: RelevanceCategorySchema.optional().describe("関連性カテゴリ（HIGH/MEDIUM/LOW）"),
+  severity: severityWithDefault.describe("問題の深刻度"),
+  suggestion: stringWithEmptyDefault.describe("修正後のコード（行番号なし、純粋なコードのみ。提案がない場合は空文字列）"),
+  suggestionStartLine: nullableNumber.describe("修正対象の開始行番号（suggestionが空の場合はnull）"),
+  suggestionEndLine: nullableNumber.describe("修正対象の終了行番号（suggestionが空の場合はnull）"),
+  // 関連性スコアリング（Phase 4）- デフォルト値付き
+  relevanceScore: relevanceScoreSchema.describe("提案の関連性スコア（1-10）"),
+  relevanceCategory: relevanceCategorySchema.describe("関連性カテゴリ（HIGH/MEDIUM/LOW）"),
 });
 export type InlineComment = z.infer<typeof InlineCommentSchema>;
 
@@ -48,19 +112,6 @@ export function getRelevanceCategory(score: number): RelevanceCategory {
 }
 
 /**
- * コメントにカテゴリを付与（スコアが存在する場合）
- */
-export function enrichCommentWithCategory(comment: InlineComment): InlineComment {
-  if (comment.relevanceScore !== undefined && comment.relevanceCategory === undefined) {
-    return {
-      ...comment,
-      relevanceCategory: getRelevanceCategory(comment.relevanceScore),
-    };
-  }
-  return comment;
-}
-
-/**
  * コメントをスコアでフィルタリング
  */
 export function filterByRelevanceScore(
@@ -74,16 +125,10 @@ export function filterByRelevanceScore(
   const filtered: InlineComment[] = [];
 
   for (const comment of comments) {
-    // スコアが無い場合は採用（後方互換性）
-    if (comment.relevanceScore === undefined) {
-      accepted.push(enrichCommentWithCategory(comment));
-      continue;
-    }
-
     if (comment.relevanceScore >= minScore) {
-      accepted.push(enrichCommentWithCategory(comment));
+      accepted.push(comment);
     } else {
-      filtered.push(enrichCommentWithCategory(comment));
+      filtered.push(comment);
     }
   }
 

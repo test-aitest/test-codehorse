@@ -14,6 +14,29 @@ import {
   type ReflectionResult,
 } from "../../src/lib/ai/reflection";
 import type { InlineComment } from "../../src/lib/ai/schemas";
+import { getRelevanceCategory } from "../../src/lib/ai/schemas";
+
+// モックコメント作成ヘルパー
+function createMockComment(
+  path: string,
+  endLine: number,
+  body: string,
+  severity: "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
+  relevanceScore: number = 7
+): InlineComment {
+  return {
+    path,
+    endLine,
+    startLine: null,
+    body,
+    severity,
+    suggestion: "",
+    suggestionStartLine: null,
+    suggestionEndLine: null,
+    relevanceScore,
+    relevanceCategory: getRelevanceCategory(relevanceScore),
+  };
+}
 
 // テスト結果トラッキング
 let passedTests = 0;
@@ -108,10 +131,10 @@ async function testFilterCommentsByReflection() {
   console.log("\n🔍 filterCommentsByReflection テスト");
 
   const mockComments: InlineComment[] = [
-    { path: "file1.ts", endLine: 10, body: "Critical bug", severity: "CRITICAL" },
-    { path: "file2.ts", endLine: 20, body: "Style issue", severity: "NITPICK" },
-    { path: "file3.ts", endLine: 30, body: "Important", severity: "IMPORTANT" },
-    { path: "file4.ts", endLine: 40, body: "Info only", severity: "INFO" },
+    createMockComment("file1.ts", 10, "Critical bug", "CRITICAL"),
+    createMockComment("file2.ts", 20, "Style issue", "NITPICK"),
+    createMockComment("file3.ts", 30, "Important", "IMPORTANT"),
+    createMockComment("file4.ts", 40, "Info only", "INFO"),
   ];
 
   const mockReflection: ReflectionResult = {
@@ -199,8 +222,8 @@ async function testApplyReflection() {
   console.log("\n🔄 applyReflection テスト");
 
   const mockComments: InlineComment[] = [
-    { path: "file1.ts", endLine: 10, body: "Comment 1", severity: "INFO" },
-    { path: "file2.ts", endLine: 20, body: "Comment 2", severity: "INFO" },
+    createMockComment("file1.ts", 10, "Comment 1", "INFO"),
+    createMockComment("file2.ts", 20, "Comment 2", "INFO"),
   ];
 
   // コメントが少ない場合（2件以下）はスキップ
@@ -245,9 +268,9 @@ async function testIntegration() {
   // 反省結果からフィルタリングまでの一連の流れ
   try {
     const mockComments: InlineComment[] = [
-      { path: "src/index.ts", endLine: 15, body: "Security vulnerability", severity: "CRITICAL", suggestion: "Use parameterized query" },
-      { path: "src/utils.ts", endLine: 42, body: "Missing null check", severity: "IMPORTANT" },
-      { path: "src/styles.css", endLine: 5, body: "Consider using rem", severity: "NITPICK" },
+      createMockComment("src/index.ts", 15, "Security vulnerability", "CRITICAL", 10),
+      createMockComment("src/utils.ts", 42, "Missing null check", "IMPORTANT", 8),
+      createMockComment("src/styles.css", 5, "Consider using rem", "NITPICK", 4),
     ];
 
     const mockReflection: ReflectionResult = {

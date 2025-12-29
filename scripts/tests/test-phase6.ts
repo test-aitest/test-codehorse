@@ -5,6 +5,7 @@
  */
 
 import type { InlineComment } from "../../src/lib/ai/schemas";
+import { getRelevanceCategory } from "../../src/lib/ai/schemas";
 import {
   calculateJaccardSimilarity,
   calculateCosineSimilarity,
@@ -48,8 +49,8 @@ function createMockComment(
   line: number,
   body: string,
   severity: "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
-  score?: number,
-  startLine?: number
+  score: number = 7,
+  startLine: number | null = null
 ): InlineComment {
   return {
     path,
@@ -57,7 +58,11 @@ function createMockComment(
     startLine,
     body,
     severity,
+    suggestion: "",
+    suggestionStartLine: null,
+    suggestionEndLine: null,
     relevanceScore: score,
+    relevanceCategory: getRelevanceCategory(score),
   };
 }
 

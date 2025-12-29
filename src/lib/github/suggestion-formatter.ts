@@ -37,8 +37,7 @@ export function getSeverityEmoji(severity: string): string {
 /**
  * 関連性カテゴリに対応する絵文字を取得
  */
-export function getRelevanceCategoryEmoji(category: string | undefined): string {
-  if (!category) return "";
+export function getRelevanceCategoryEmoji(category: string): string {
   const emojiMap: Record<string, string> = {
     HIGH: "⬆️",
     MEDIUM: "➡️",
@@ -51,15 +50,11 @@ export function getRelevanceCategoryEmoji(category: string | undefined): string 
  * 関連性スコアをフォーマット
  */
 export function formatRelevanceScore(
-  score: number | undefined,
-  category: string | undefined
+  score: number,
+  category: string
 ): string {
-  if (score === undefined) return "";
-
   const categoryEmoji = getRelevanceCategoryEmoji(category);
-  const categoryLabel = category ? ` ${category}` : "";
-
-  return ` | ${categoryEmoji} Relevance: ${score}/10${categoryLabel}`;
+  return ` | ${categoryEmoji} Relevance: ${score}/10 ${category}`;
 }
 
 /**
@@ -68,9 +63,9 @@ export function formatRelevanceScore(
 export function formatInlineCommentWithSuggestion(params: {
   body: string;
   severity: string;
-  suggestion?: string;
-  relevanceScore?: number;
-  relevanceCategory?: string;
+  suggestion: string;
+  relevanceScore: number;
+  relevanceCategory: string;
 }): string {
   const { body, severity, suggestion, relevanceScore, relevanceCategory } = params;
   const emoji = getSeverityEmoji(severity);
@@ -117,7 +112,13 @@ export function createMultiLineSuggestionComment(params: {
     const needsStartLine = suggestionStartLine < commentLine;
 
     return {
-      body: formatInlineCommentWithSuggestion({ body, severity, suggestion }),
+      body: formatInlineCommentWithSuggestion({
+        body,
+        severity,
+        suggestion,
+        relevanceScore: 7,
+        relevanceCategory: "MEDIUM",
+      }),
       needsStartLine,
       startLine: needsStartLine ? suggestionStartLine : undefined,
     };
@@ -158,7 +159,7 @@ function formatDiffSuggestion(suggestion: string): string {
  * 提案が有効かどうかチェック
  * 空文字列や空白のみの提案は無効
  */
-export function isValidSuggestion(suggestion: string | undefined): boolean {
+export function isValidSuggestion(suggestion: string): boolean {
   if (!suggestion) return false;
   return suggestion.trim().length > 0;
 }

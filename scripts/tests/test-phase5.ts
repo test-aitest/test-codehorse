@@ -6,6 +6,7 @@
 
 import type { ParsedFile } from "../../src/lib/diff/types";
 import type { InlineComment, ReviewResult } from "../../src/lib/ai/schemas";
+import { getRelevanceCategory } from "../../src/lib/ai/schemas";
 import {
   needsChunking,
   createChunks,
@@ -118,14 +119,19 @@ function createMockComment(
   line: number,
   body: string,
   severity: "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
-  score?: number
+  score: number = 7
 ): InlineComment {
   return {
     path,
     endLine: line,
+    startLine: null,
     body,
     severity,
+    suggestion: "",
+    suggestionStartLine: null,
+    suggestionEndLine: null,
     relevanceScore: score,
+    relevanceCategory: getRelevanceCategory(score),
   };
 }
 

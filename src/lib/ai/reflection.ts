@@ -167,7 +167,9 @@ export async function reflectOnReview(
       temperature: 0.3,
     });
 
-    // JSONをパース
+    console.log(`[Reflection] AI response length: ${aiResult.text.length}`);
+
+    // JSONをパース（修復機能付き）
     const parseResult = parseAndValidateJson(aiResult.text, ReflectionResultSchema);
 
     if (parseResult.success) {
@@ -176,8 +178,9 @@ export async function reflectOnReview(
       return validated;
     }
 
-    // パース失敗
+    // パース失敗 - デバッグ情報を出力
     console.error("[Reflection] JSON parse failed:", parseResult.error);
+    console.error("[Reflection] Response preview:", aiResult.text.substring(0, 500));
 
     // フォールバック: 全コメントを採用
     return {

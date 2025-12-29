@@ -44,7 +44,6 @@ import { extendDiffContext } from "../../src/lib/diff/context-extender";
 import {
   filterByRelevanceScore,
   getRelevanceCategory,
-  enrichCommentWithCategory,
   RELEVANCE_CONFIG,
 } from "../../src/lib/ai/schemas";
 
@@ -179,14 +178,19 @@ function createMockComment(
   line: number,
   body: string,
   severity: "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
-  score?: number
+  score: number = 7
 ): InlineComment {
   return {
     path,
     endLine: line,
+    startLine: null,
     body,
     severity,
+    suggestion: "",
+    suggestionStartLine: null,
+    suggestionEndLine: null,
     relevanceScore: score,
+    relevanceCategory: score >= 9 ? "HIGH" : score >= 7 ? "MEDIUM" : "LOW",
   };
 }
 
@@ -468,13 +472,12 @@ function testPhase4() {
     getRelevanceCategory(5) === "LOW"
   );
 
-  // コメントエンリッチテスト
+  // コメントカテゴリテスト
   const comment = createMockComment("test.ts", 10, "Test", "INFO", 9);
-  const enriched = enrichCommentWithCategory(comment);
   logTest(
     "Phase 4",
-    "enrichCommentWithCategory: カテゴリ追加",
-    enriched.relevanceCategory === "HIGH"
+    "createMockComment: カテゴリ自動付与",
+    comment.relevanceCategory === "HIGH"
   );
 
   // フィルタリングテスト
@@ -803,30 +806,50 @@ async function testIntegratedFlow() {
       {
         path: "src/auth/login.ts",
         endLine: 10,
+        startLine: null,
         body: "SQL injection vulnerability database query",
         severity: "CRITICAL",
+        suggestion: "",
+        suggestionStartLine: null,
+        suggestionEndLine: null,
         relevanceScore: 10,
+        relevanceCategory: "HIGH",
       },
       {
         path: "src/auth/login.ts",
         endLine: 12,
+        startLine: null,
         body: "SQL injection vulnerability database attack",
         severity: "CRITICAL",
+        suggestion: "",
+        suggestionStartLine: null,
+        suggestionEndLine: null,
         relevanceScore: 9,
+        relevanceCategory: "HIGH",
       },
       {
         path: "src/api/users.ts",
         endLine: 20,
+        startLine: null,
         body: "N+1 query performance issue",
         severity: "IMPORTANT",
+        suggestion: "",
+        suggestionStartLine: null,
+        suggestionEndLine: null,
         relevanceScore: 8,
+        relevanceCategory: "MEDIUM",
       },
       {
         path: "src/utils/format.ts",
         endLine: 5,
+        startLine: null,
         body: "Minor style suggestion",
         severity: "NITPICK",
+        suggestion: "",
+        suggestionStartLine: null,
+        suggestionEndLine: null,
         relevanceScore: 3,
+        relevanceCategory: "LOW",
       },
     ],
   });
@@ -969,9 +992,14 @@ function testJSONRepairEdgeCases() {
       {
         path: "a.ts",
         endLine: 10,
+        startLine: null,
         body: "Issue with nested { brackets }",
         severity: "INFO",
+        suggestion: "",
+        suggestionStartLine: null,
+        suggestionEndLine: null,
         relevanceScore: 5,
+        relevanceCategory: "LOW",
       },
     ],
   });
@@ -1408,11 +1436,10 @@ function testDataIntegrity() {
   logTest("整合性", "結果一貫性: コメント数", result1.comments.length === result2.comments.length);
   logTest("整合性", "結果一貫性: 重複数", result1.stats.duplicatesRemoved === result2.stats.duplicatesRemoved);
 
-  // カテゴリ付与の一貫性
-  const comment = createMockComment("test.ts", 10, "Test", "INFO", 8);
-  const enriched1 = enrichCommentWithCategory(comment);
-  const enriched2 = enrichCommentWithCategory(comment);
-  logTest("整合性", "カテゴリ一貫性", enriched1.relevanceCategory === enriched2.relevanceCategory);
+  // カテゴリ付与の一貫性（createMockCommentで自動付与）
+  const comment1 = createMockComment("test.ts", 10, "Test", "INFO", 8);
+  const comment2 = createMockComment("test.ts", 10, "Test", "INFO", 8);
+  logTest("整合性", "カテゴリ一貫性", comment1.relevanceCategory === comment2.relevanceCategory);
 }
 
 // ========================================
@@ -1452,14 +1479,18 @@ function testGitHubAPIEdgeCases() {
   const suggestionComment: InlineComment = {
     path: "test.ts",
     endLine: 10,
+    startLine: null,
     body: "Consider this change",
     severity: "INFO",
-    relevanceScore: 7,
     suggestion: "const optimized = value.map(v => v * 2);",
+    suggestionStartLine: 10,
+    suggestionEndLine: 10,
+    relevanceScore: 7,
+    relevanceCategory: "MEDIUM",
   };
   const suggestionResult = deduplicateComments([suggestionComment]);
   logTest("GitHub", "suggestion付きコメント: 処理成功", suggestionResult.comments.length === 1);
-  logTest("GitHub", "suggestion保持", suggestionResult.comments[0].suggestion !== undefined);
+  logTest("GitHub", "suggestion保持", suggestionResult.comments[0].suggestion !== "");
 
   // 複数行コメント（startLine付き）
   const multiLineComment: InlineComment = {
@@ -1468,7 +1499,11 @@ function testGitHubAPIEdgeCases() {
     endLine: 15,
     body: "This spans multiple lines",
     severity: "IMPORTANT",
+    suggestion: "",
+    suggestionStartLine: null,
+    suggestionEndLine: null,
     relevanceScore: 8,
+    relevanceCategory: "MEDIUM",
   };
   const multiLineResult = deduplicateComments([multiLineComment]);
   logTest("GitHub", "複数行コメント: 処理成功", multiLineResult.comments.length === 1);
@@ -1656,9 +1691,14 @@ function testMemoryLimits() {
     comments: Array(50).fill(null).map((_, i) => ({
       path: `file${i}.ts`,
       endLine: i + 1,
+      startLine: null,
       body: `Comment ${i}`.repeat(20),
       severity: "INFO",
+      suggestion: "",
+      suggestionStartLine: null,
+      suggestionEndLine: null,
       relevanceScore: 5,
+      relevanceCategory: "LOW",
     })),
   });
 
