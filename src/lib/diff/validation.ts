@@ -1,5 +1,5 @@
 import type { ParsedDiff, CommentValidationResult } from "./types";
-import { getHunkRanges } from "./parser";
+import { getHunkRanges, getFileByPath } from "./parser";
 import { COMMENT_ADJUSTMENT_TOLERANCE } from "../ai/constants";
 
 /**
@@ -12,9 +12,8 @@ export function getCommentableLines(
 ): Set<number> {
   const commentableLines = new Set<number>();
 
-  const file = parsedDiff.files.find(
-    (f) => f.newPath === filePath || f.oldPath === filePath
-  );
+  // O(1)ルックアップを使用
+  const file = getFileByPath(filePath, parsedDiff);
   if (!file) return commentableLines;
 
   for (const hunk of file.hunks) {

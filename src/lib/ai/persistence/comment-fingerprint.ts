@@ -163,6 +163,17 @@ const PATTERN_TYPE_KEYWORDS: Record<string, string[]> = {
 // 正規化関数
 // ========================================
 
+// 事前コンパイルされた正規表現パターン（パフォーマンス最適化）
+const REGEX_CODE_BLOCK = /```[\s\S]*?```/g;
+const REGEX_INLINE_CODE = /`[^`]+`/g;
+const REGEX_WHITESPACE = /\s+/g;
+const REGEX_URL = /https?:\/\/[^\s]+/g;
+const REGEX_FILE_PATH = /(?:\/[\w.-]+)+(?:\.\w+)?/g;
+const REGEX_LINE_NUMBER = /line\s*\d+/gi;
+const REGEX_NUMBER = /(?<!n\+)\b\d+\b(?!\s*query)/gi;
+const REGEX_WORD_SPLIT = /[\s,.;:!?()[\]{}'"]+/;
+const REGEX_UPPERCASE = /[A-Z]/;
+
 /**
  * コメント本文を正規化する
  * - 小文字化
@@ -174,26 +185,34 @@ export function normalizeContent(body: string): string {
   let normalized = body;
 
   // コードブロックを抽象化（内容は無視、存在のみ記録）
-  normalized = normalized.replace(/```[\s\S]*?```/g, "[CODE_BLOCK]");
-  normalized = normalized.replace(/`[^`]+`/g, "[INLINE_CODE]");
+  // グローバルフラグの正規表現は lastIndex をリセット
+  REGEX_CODE_BLOCK.lastIndex = 0;
+  REGEX_INLINE_CODE.lastIndex = 0;
+  normalized = normalized.replace(REGEX_CODE_BLOCK, "[CODE_BLOCK]");
+  normalized = normalized.replace(REGEX_INLINE_CODE, "[INLINE_CODE]");
 
   // 小文字化
   normalized = normalized.toLowerCase();
 
   // 余分な空白を正規化
-  normalized = normalized.replace(/\s+/g, " ").trim();
+  REGEX_WHITESPACE.lastIndex = 0;
+  normalized = normalized.replace(REGEX_WHITESPACE, " ").trim();
 
   // URLを抽象化
-  normalized = normalized.replace(/https?:\/\/[^\s]+/g, "[URL]");
+  REGEX_URL.lastIndex = 0;
+  normalized = normalized.replace(REGEX_URL, "[URL]");
 
   // ファイルパスを抽象化
-  normalized = normalized.replace(/(?:\/[\w.-]+)+(?:\.\w+)?/g, "[PATH]");
+  REGEX_FILE_PATH.lastIndex = 0;
+  normalized = normalized.replace(REGEX_FILE_PATH, "[PATH]");
 
   // 行番号を抽象化
-  normalized = normalized.replace(/line\s*\d+/gi, "[LINE]");
+  REGEX_LINE_NUMBER.lastIndex = 0;
+  normalized = normalized.replace(REGEX_LINE_NUMBER, "[LINE]");
 
   // 数値を抽象化（ただしn+1のような重要なパターンは保持）
-  normalized = normalized.replace(/(?<!n\+)\b\d+\b(?!\s*query)/gi, "[NUM]");
+  REGEX_NUMBER.lastIndex = 0;
+  normalized = normalized.replace(REGEX_NUMBER, "[NUM]");
 
   return normalized;
 }
@@ -232,15 +251,15 @@ const ALL_KEYWORDS = new Set([
 export function extractKeywords(normalizedContent: string): string[] {
   const keywords: Set<string> = new Set();
 
-  // 単語を抽出
+  // 単語を抽出（事前コンパイルされた正規表現を使用）
   const words = normalizedContent
-    .split(/[\s,.;:!?()[\]{}'"]+/)
+    .split(REGEX_WORD_SPLIT)
     .filter((word) => word.length > 2 && !STOP_WORDS.has(word));
 
   // 単語ベースのキーワード抽出
   for (const word of words) {
     // 技術用語っぽい単語（キャメルケース、スネークケースなど）
-    if (/[A-Z]/.test(word) || word.includes("_")) {
+    if (REGEX_UPPERCASE.test(word) || word.includes("_")) {
       keywords.add(word);
       continue;
     }
