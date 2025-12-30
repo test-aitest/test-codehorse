@@ -1,8 +1,6 @@
 import type { ParsedDiff, CommentValidationResult } from "./types";
-import { getHunkRanges } from "./parser";
-
-// コメント位置調整の許容範囲（行数）
-const ADJUSTMENT_TOLERANCE = 10;
+import { getHunkRanges, getFileByPath } from "./parser";
+import { COMMENT_ADJUSTMENT_TOLERANCE } from "../ai/constants";
 
 /**
  * diff内で実際にコメント可能な行番号のセットを取得
@@ -14,9 +12,8 @@ export function getCommentableLines(
 ): Set<number> {
   const commentableLines = new Set<number>();
 
-  const file = parsedDiff.files.find(
-    (f) => f.newPath === filePath || f.oldPath === filePath
-  );
+  // O(1)ルックアップを使用
+  const file = getFileByPath(filePath, parsedDiff);
   if (!file) return commentableLines;
 
   for (const hunk of file.hunks) {
@@ -41,7 +38,7 @@ export function getCommentableLines(
 function findNearestCommentableLine(
   targetLine: number,
   commentableLines: Set<number>,
-  tolerance: number = ADJUSTMENT_TOLERANCE
+  tolerance: number = COMMENT_ADJUSTMENT_TOLERANCE
 ): number | undefined {
   if (commentableLines.has(targetLine)) {
     return targetLine;
@@ -125,7 +122,7 @@ export function validateCommentPosition(
     // 許容範囲内にコメント可能な行がない
     return {
       valid: false,
-      reason: `Line ${line} is not commentable and no nearby commentable line found within ${ADJUSTMENT_TOLERANCE} lines`
+      reason: `Line ${line} is not commentable and no nearby commentable line found within ${COMMENT_ADJUSTMENT_TOLERANCE} lines`
     };
   }
 

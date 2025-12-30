@@ -44,8 +44,8 @@ import { extendDiffContext } from "../../src/lib/diff/context-extender";
 import {
   filterByRelevanceScore,
   getRelevanceCategory,
-  RELEVANCE_CONFIG,
 } from "../../src/lib/ai/schemas";
+import { getMinRelevanceScore, RELEVANCE_THRESHOLDS } from "../../src/lib/ai/constants";
 
 // ========================================
 // Phase 5: マルチチャンク処理
@@ -446,13 +446,13 @@ function testPhase4() {
   // 設定テスト
   logTest(
     "Phase 4",
-    "RELEVANCE_CONFIG.minScore存在",
-    typeof RELEVANCE_CONFIG.minScore === "number"
+    "getMinRelevanceScore()存在",
+    typeof getMinRelevanceScore() === "number"
   );
   logTest(
     "Phase 4",
-    "RELEVANCE_CONFIG.highThreshold is 9",
-    RELEVANCE_CONFIG.highThreshold === 9
+    "RELEVANCE_THRESHOLDS.HIGH is 9",
+    RELEVANCE_THRESHOLDS.HIGH === 9
   );
 
   // カテゴリ判定テスト

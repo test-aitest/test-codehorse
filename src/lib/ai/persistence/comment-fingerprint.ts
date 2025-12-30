@@ -163,6 +163,17 @@ const PATTERN_TYPE_KEYWORDS: Record<string, string[]> = {
 // 正規化関数
 // ========================================
 
+// 事前コンパイルされた正規表現パターン（パフォーマンス最適化）
+const REGEX_CODE_BLOCK = /```[\s\S]*?```/g;
+const REGEX_INLINE_CODE = /`[^`]+`/g;
+const REGEX_WHITESPACE = /\s+/g;
+const REGEX_URL = /https?:\/\/[^\s]+/g;
+const REGEX_FILE_PATH = /(?:\/[\w.-]+)+(?:\.\w+)?/g;
+const REGEX_LINE_NUMBER = /line\s*\d+/gi;
+const REGEX_NUMBER = /(?<!n\+)\b\d+\b(?!\s*query)/gi;
+const REGEX_WORD_SPLIT = /[\s,.;:!?()[\]{}'"]+/;
+const REGEX_UPPERCASE = /[A-Z]/;
+
 /**
  * コメント本文を正規化する
  * - 小文字化
@@ -174,29 +185,65 @@ export function normalizeContent(body: string): string {
   let normalized = body;
 
   // コードブロックを抽象化（内容は無視、存在のみ記録）
-  normalized = normalized.replace(/```[\s\S]*?```/g, "[CODE_BLOCK]");
-  normalized = normalized.replace(/`[^`]+`/g, "[INLINE_CODE]");
+  // グローバルフラグの正規表現は lastIndex をリセット
+  REGEX_CODE_BLOCK.lastIndex = 0;
+  REGEX_INLINE_CODE.lastIndex = 0;
+  normalized = normalized.replace(REGEX_CODE_BLOCK, "[CODE_BLOCK]");
+  normalized = normalized.replace(REGEX_INLINE_CODE, "[INLINE_CODE]");
 
   // 小文字化
   normalized = normalized.toLowerCase();
 
   // 余分な空白を正規化
-  normalized = normalized.replace(/\s+/g, " ").trim();
+  REGEX_WHITESPACE.lastIndex = 0;
+  normalized = normalized.replace(REGEX_WHITESPACE, " ").trim();
 
   // URLを抽象化
-  normalized = normalized.replace(/https?:\/\/[^\s]+/g, "[URL]");
+  REGEX_URL.lastIndex = 0;
+  normalized = normalized.replace(REGEX_URL, "[URL]");
 
   // ファイルパスを抽象化
-  normalized = normalized.replace(/(?:\/[\w.-]+)+(?:\.\w+)?/g, "[PATH]");
+  REGEX_FILE_PATH.lastIndex = 0;
+  normalized = normalized.replace(REGEX_FILE_PATH, "[PATH]");
 
   // 行番号を抽象化
-  normalized = normalized.replace(/line\s*\d+/gi, "[LINE]");
+  REGEX_LINE_NUMBER.lastIndex = 0;
+  normalized = normalized.replace(REGEX_LINE_NUMBER, "[LINE]");
 
   // 数値を抽象化（ただしn+1のような重要なパターンは保持）
-  normalized = normalized.replace(/(?<!n\+)\b\d+\b(?!\s*query)/gi, "[NUM]");
+  REGEX_NUMBER.lastIndex = 0;
+  normalized = normalized.replace(REGEX_NUMBER, "[NUM]");
 
   return normalized;
 }
+
+// ストップワード定義（モジュールレベルで1回だけ生成）
+const STOP_WORDS = new Set([
+  // 英語
+  "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+  "have", "has", "had", "do", "does", "did", "will", "would", "could",
+  "should", "may", "might", "must", "shall", "can", "need", "dare",
+  "ought", "used", "to", "of", "in", "for", "on", "with", "at", "by",
+  "from", "as", "into", "through", "during", "before", "after", "above",
+  "below", "between", "under", "again", "further", "then", "once",
+  "here", "there", "when", "where", "why", "how", "all", "each", "few",
+  "more", "most", "other", "some", "such", "no", "nor", "not", "only",
+  "own", "same", "so", "than", "too", "very", "just", "but", "and",
+  "or", "if", "this", "that", "these", "those", "it", "its",
+  // 日本語
+  "の", "に", "は", "を", "た", "が", "で", "て", "と", "し", "れ", "さ",
+  "ある", "いる", "する", "から", "な", "こと", "として", "い", "や",
+  "れる", "など", "なっ", "ない", "この", "ため", "その", "あっ", "よう",
+  "また", "もの", "という", "あり",
+  // プレースホルダー
+  "[code_block]", "[inline_code]", "[url]", "[path]", "[line]", "[num]",
+]);
+
+// 全キーワードリストを事前に統合（モジュールレベルで1回だけ生成）
+const ALL_KEYWORDS = new Set([
+  ...Object.values(CATEGORY_KEYWORDS).flat(),
+  ...Object.values(PATTERN_TYPE_KEYWORDS).flat(),
+]);
 
 /**
  * キーワードを抽出する
@@ -204,176 +251,72 @@ export function normalizeContent(body: string): string {
 export function extractKeywords(normalizedContent: string): string[] {
   const keywords: Set<string> = new Set();
 
-  // ストップワードを定義
-  const stopWords = new Set([
-    "the",
-    "a",
-    "an",
-    "is",
-    "are",
-    "was",
-    "were",
-    "be",
-    "been",
-    "being",
-    "have",
-    "has",
-    "had",
-    "do",
-    "does",
-    "did",
-    "will",
-    "would",
-    "could",
-    "should",
-    "may",
-    "might",
-    "must",
-    "shall",
-    "can",
-    "need",
-    "dare",
-    "ought",
-    "used",
-    "to",
-    "of",
-    "in",
-    "for",
-    "on",
-    "with",
-    "at",
-    "by",
-    "from",
-    "as",
-    "into",
-    "through",
-    "during",
-    "before",
-    "after",
-    "above",
-    "below",
-    "between",
-    "under",
-    "again",
-    "further",
-    "then",
-    "once",
-    "here",
-    "there",
-    "when",
-    "where",
-    "why",
-    "how",
-    "all",
-    "each",
-    "few",
-    "more",
-    "most",
-    "other",
-    "some",
-    "such",
-    "no",
-    "nor",
-    "not",
-    "only",
-    "own",
-    "same",
-    "so",
-    "than",
-    "too",
-    "very",
-    "just",
-    "but",
-    "and",
-    "or",
-    "if",
-    "this",
-    "that",
-    "these",
-    "those",
-    "it",
-    "its",
-    // 日本語のストップワード
-    "の",
-    "に",
-    "は",
-    "を",
-    "た",
-    "が",
-    "で",
-    "て",
-    "と",
-    "し",
-    "れ",
-    "さ",
-    "ある",
-    "いる",
-    "する",
-    "から",
-    "な",
-    "こと",
-    "として",
-    "い",
-    "や",
-    "れる",
-    "など",
-    "なっ",
-    "ない",
-    "この",
-    "ため",
-    "その",
-    "あっ",
-    "よう",
-    "また",
-    "もの",
-    "という",
-    "あり",
-    // プレースホルダー
-    "[code_block]",
-    "[inline_code]",
-    "[url]",
-    "[path]",
-    "[line]",
-    "[num]",
-  ]);
-
-  // 単語を抽出
+  // 単語を抽出（事前コンパイルされた正規表現を使用）
   const words = normalizedContent
-    .split(/[\s,.;:!?()[\]{}'"]+/)
-    .filter((word) => word.length > 2 && !stopWords.has(word));
+    .split(REGEX_WORD_SPLIT)
+    .filter((word) => word.length > 2 && !STOP_WORDS.has(word));
 
-  // 重要なキーワードを追加
+  // 単語ベースのキーワード抽出
   for (const word of words) {
-    // カテゴリキーワードをチェック
-    for (const categoryWords of Object.values(CATEGORY_KEYWORDS)) {
-      if (categoryWords.some((kw) => word.includes(kw) || kw.includes(word))) {
-        keywords.add(word);
-      }
-    }
-
-    // パターンタイプキーワードをチェック
-    for (const patternWords of Object.values(PATTERN_TYPE_KEYWORDS)) {
-      if (patternWords.some((kw) => word.includes(kw) || kw.includes(word))) {
-        keywords.add(word);
-      }
-    }
-
     // 技術用語っぽい単語（キャメルケース、スネークケースなど）
-    if (/[A-Z]/.test(word) || word.includes("_")) {
+    if (REGEX_UPPERCASE.test(word) || word.includes("_")) {
       keywords.add(word);
+      continue;
     }
-  }
 
-  // フレーズベースのキーワード抽出
-  for (const categoryKeywords of Object.values(CATEGORY_KEYWORDS)) {
-    for (const keyword of categoryKeywords) {
-      if (normalizedContent.includes(keyword)) {
-        keywords.add(keyword);
+    // 定義済みキーワードとのマッチング
+    for (const kw of ALL_KEYWORDS) {
+      if (word.includes(kw) || kw.includes(word)) {
+        keywords.add(word);
+        break;
       }
     }
   }
 
-  return Array.from(keywords).slice(0, 20); // 最大20キーワード
+  // フレーズベースのキーワード抽出（複数単語のキーワード用）
+  for (const keyword of ALL_KEYWORDS) {
+    if (keyword.includes(" ") && normalizedContent.includes(keyword)) {
+      keywords.add(keyword);
+    }
+  }
+
+  return Array.from(keywords).slice(0, 20);
+}
+
+/**
+ * キーワードマッピングからスコアベースで検出する共通関数
+ */
+function detectByKeywordScoring(
+  normalizedContent: string,
+  extractedKeywords: string[],
+  keywordMapping: Record<string, string[]>,
+  defaultValue: string
+): string {
+  const scores: Record<string, number> = {};
+
+  for (const [key, mappedKeywords] of Object.entries(keywordMapping)) {
+    scores[key] = 0;
+
+    // コンテンツ内のキーワードマッチング
+    for (const keyword of mappedKeywords) {
+      if (normalizedContent.includes(keyword)) {
+        scores[key] += keyword.length > 5 ? 2 : 1;
+      }
+    }
+
+    // 抽出されたキーワードとの一致もチェック
+    for (const kw of extractedKeywords) {
+      if (mappedKeywords.some((mk) => mk.includes(kw) || kw.includes(mk))) {
+        scores[key] += 1;
+      }
+    }
+  }
+
+  // 最高スコアのキーを返す
+  const entries = Object.entries(scores);
+  const maxEntry = entries.reduce((a, b) => (a[1] > b[1] ? a : b));
+
+  return maxEntry[1] > 0 ? maxEntry[0] : defaultValue;
 }
 
 /**
@@ -387,34 +330,12 @@ export function detectCategory(
   if (providedCategory) {
     return providedCategory;
   }
-
-  const scores: Record<string, number> = {};
-
-  // キーワードマッチングでスコアを計算
-  for (const [category, categoryKeywords] of Object.entries(
-    CATEGORY_KEYWORDS
-  )) {
-    scores[category] = 0;
-
-    for (const keyword of categoryKeywords) {
-      if (normalizedContent.includes(keyword)) {
-        scores[category] += keyword.length > 5 ? 2 : 1;
-      }
-    }
-
-    // 抽出されたキーワードとの一致もチェック
-    for (const kw of keywords) {
-      if (categoryKeywords.some((ck) => ck.includes(kw) || kw.includes(ck))) {
-        scores[category] += 1;
-      }
-    }
-  }
-
-  // 最高スコアのカテゴリを返す
-  const entries = Object.entries(scores);
-  const maxEntry = entries.reduce((a, b) => (a[1] > b[1] ? a : b));
-
-  return maxEntry[1] > 0 ? maxEntry[0] : "general";
+  return detectByKeywordScoring(
+    normalizedContent,
+    keywords,
+    CATEGORY_KEYWORDS,
+    "general"
+  );
 }
 
 /**
@@ -429,34 +350,12 @@ export function detectPatternType(
   if (providedPatternType) {
     return providedPatternType;
   }
-
-  const scores: Record<string, number> = {};
-
-  // キーワードマッチングでスコアを計算
-  for (const [patternType, patternKeywords] of Object.entries(
-    PATTERN_TYPE_KEYWORDS
-  )) {
-    scores[patternType] = 0;
-
-    for (const keyword of patternKeywords) {
-      if (normalizedContent.includes(keyword)) {
-        scores[patternType] += keyword.length > 5 ? 2 : 1;
-      }
-    }
-
-    // 抽出されたキーワードとの一致もチェック
-    for (const kw of keywords) {
-      if (patternKeywords.some((pk) => pk.includes(kw) || kw.includes(pk))) {
-        scores[patternType] += 1;
-      }
-    }
-  }
-
-  // 最高スコアのパターンタイプを返す
-  const entries = Object.entries(scores);
-  const maxEntry = entries.reduce((a, b) => (a[1] > b[1] ? a : b));
-
-  return maxEntry[1] > 0 ? maxEntry[0] : `${category}_general`;
+  return detectByKeywordScoring(
+    normalizedContent,
+    keywords,
+    PATTERN_TYPE_KEYWORDS,
+    `${category}_general`
+  );
 }
 
 // ========================================

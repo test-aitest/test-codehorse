@@ -6,6 +6,7 @@
  */
 
 import type { InlineComment } from "./schemas";
+import { SEVERITY_ORDER } from "./constants";
 
 // ========================================
 // 設定
@@ -88,6 +89,29 @@ export interface SimilarityMatch {
 // 類似度計算
 // ========================================
 
+// トークンキャッシュ（同一テキストの再トークン化を防止）
+const tokenCache = new Map<string, Set<string>>();
+const TOKEN_CACHE_MAX_SIZE = 100;
+
+/**
+ * キャッシュ付きトークン化
+ */
+function getCachedTokens(text: string): Set<string> {
+  const cached = tokenCache.get(text);
+  if (cached) return cached;
+
+  const tokens = tokenizeText(text);
+
+  // キャッシュサイズ制限
+  if (tokenCache.size >= TOKEN_CACHE_MAX_SIZE) {
+    const firstKey = tokenCache.keys().next().value;
+    if (firstKey) tokenCache.delete(firstKey);
+  }
+
+  tokenCache.set(text, tokens);
+  return tokens;
+}
+
 /**
  * 2つの文字列のJaccard類似度を計算（単語単位）
  */
@@ -95,8 +119,8 @@ export function calculateJaccardSimilarity(
   text1: string,
   text2: string
 ): number {
-  const words1 = tokenizeText(text1);
-  const words2 = tokenizeText(text2);
+  const words1 = getCachedTokens(text1);
+  const words2 = getCachedTokens(text2);
 
   if (words1.size === 0 && words2.size === 0) {
     return 1.0;
@@ -203,8 +227,8 @@ export function calculateCosineSimilarity(
   text1: string,
   text2: string
 ): number {
-  const words1 = tokenizeText(text1);
-  const words2 = tokenizeText(text2);
+  const words1 = getCachedTokens(text1);
+  const words2 = getCachedTokens(text2);
 
   if (words1.size === 0 || words2.size === 0) {
     return 0.0;
@@ -371,6 +395,7 @@ export function isDuplicate(
 
 /**
  * 全てのコメントペアの類似度マッチを検出
+ * 最適化: 同一ファイル内のコメントのみを比較（O(n²)からO(Σm²)へ、mはファイル内コメント数）
  */
 export function findAllSimilarityMatches(
   comments: InlineComment[],
@@ -378,18 +403,33 @@ export function findAllSimilarityMatches(
 ): SimilarityMatch[] {
   const matches: SimilarityMatch[] = [];
 
+  // ファイル別にコメントをグループ化
+  const byFile = new Map<string, Array<{ index: number; comment: InlineComment }>>();
   for (let i = 0; i < comments.length; i++) {
-    for (let j = i + 1; j < comments.length; j++) {
-      const result = isDuplicate(comments[i], comments[j], config);
+    const path = comments[i].path;
+    if (!byFile.has(path)) {
+      byFile.set(path, []);
+    }
+    byFile.get(path)!.push({ index: i, comment: comments[i] });
+  }
 
-      if (result.isDuplicate) {
-        matches.push({
-          index1: i,
-          index2: j,
-          similarity: result.similarity,
-          reason: result.reason,
-          isLineOverlap: hasLineOverlap(comments[i], comments[j]),
-        });
+  // 各ファイル内でのみ比較
+  for (const fileComments of byFile.values()) {
+    for (let i = 0; i < fileComments.length; i++) {
+      for (let j = i + 1; j < fileComments.length; j++) {
+        const c1 = fileComments[i];
+        const c2 = fileComments[j];
+        const result = isDuplicate(c1.comment, c2.comment, config);
+
+        if (result.isDuplicate) {
+          matches.push({
+            index1: c1.index,
+            index2: c2.index,
+            similarity: result.similarity,
+            reason: result.reason,
+            isLineOverlap: hasLineOverlap(c1.comment, c2.comment),
+          });
+        }
       }
     }
   }
@@ -401,14 +441,6 @@ export function findAllSimilarityMatches(
 // ========================================
 // コメント優先度
 // ========================================
-
-// 深刻度の優先順位
-const SEVERITY_ORDER: Record<string, number> = {
-  CRITICAL: 4,
-  IMPORTANT: 3,
-  INFO: 2,
-  NITPICK: 1,
-};
 
 /**
  * 2つのコメントを比較し、保持すべきものを決定

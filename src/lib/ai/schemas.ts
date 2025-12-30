@@ -1,4 +1,14 @@
 import { z } from "zod";
+import {
+  SEVERITIES,
+  DEFAULT_SEVERITY,
+  RELEVANCE_CATEGORIES,
+  RELEVANCE_THRESHOLDS,
+  DEFAULT_RELEVANCE_SCORE,
+  getMinRelevanceScore,
+  type Severity,
+  type RelevanceCategory,
+} from "./constants";
 
 // ========================================
 // pr-agent方式: 柔軟なスキーマ定義
@@ -6,18 +16,14 @@ import { z } from "zod";
 // - デフォルト値でグレースフルデグレード
 // ========================================
 
-// レビューコメントの深刻度
-export const SeveritySchema = z.enum([
-  "CRITICAL",
-  "IMPORTANT",
-  "INFO",
-  "NITPICK",
-]);
-export type Severity = z.infer<typeof SeveritySchema>;
+// 深刻度・関連性カテゴリの型をre-export
+export type { Severity, RelevanceCategory };
 
-// 関連性カテゴリ
-export const RelevanceCategorySchema = z.enum(["HIGH", "MEDIUM", "LOW"]);
-export type RelevanceCategory = z.infer<typeof RelevanceCategorySchema>;
+// レビューコメントの深刻度（定数から生成）
+export const SeveritySchema = z.enum(SEVERITIES);
+
+// 関連性カテゴリ（定数から生成）
+export const RelevanceCategorySchema = z.enum(RELEVANCE_CATEGORIES);
 
 // ========================================
 // pr-agent方式: 柔軟なフィールド定義ヘルパー
@@ -40,13 +46,12 @@ const stringWithEmptyDefault = z.preprocess(
 );
 
 /**
- * 関連性スコア: null/undefined/範囲外 → デフォルト5
+ * 関連性スコア: null/undefined/範囲外 → デフォルト値
  */
 const relevanceScoreSchema = z.preprocess((val) => {
-  if (val === null || val === undefined) return 5;
+  if (val === null || val === undefined) return DEFAULT_RELEVANCE_SCORE;
   const num = typeof val === "number" ? val : parseInt(String(val), 10);
-  if (isNaN(num)) return 5;
-  // 範囲を1-10に制限
+  if (isNaN(num)) return DEFAULT_RELEVANCE_SCORE;
   return Math.max(1, Math.min(10, num));
 }, z.number().min(1).max(10));
 
@@ -59,19 +64,13 @@ const relevanceCategorySchema = z.preprocess((val) => {
 }, RelevanceCategorySchema);
 
 /**
- * 深刻度: null/undefined → INFO
- * テストのため
+ * 深刻度: null/undefined → デフォルト値
  */
 const severityWithDefault = z.preprocess((val) => {
-  if (
-    val === "CRITICAL" ||
-    val === "IMPORTANT" ||
-    val === "INFO" ||
-    val === "NITPICK"
-  ) {
+  if (SEVERITIES.includes(val as Severity)) {
     return val;
   }
-  return "INFO"; // デフォルト
+  return DEFAULT_SEVERITY;
 }, SeveritySchema);
 
 // インラインコメント（pr-agent方式: 柔軟な検証）
@@ -104,22 +103,12 @@ export type InlineComment = z.infer<typeof InlineCommentSchema>;
 // 関連性スコアリング ユーティリティ
 // ========================================
 
-// スコアリング設定
-export const RELEVANCE_CONFIG = {
-  // フィルタリング閾値
-  minScore: parseInt(process.env.AI_RELEVANCE_MIN_SCORE || "5", 10),
-  // カテゴリ閾値
-  highThreshold: 9, // 9-10 = HIGH
-  mediumThreshold: 7, // 7-8 = MEDIUM
-  // LOW = 1-6
-} as const;
-
 /**
  * スコアからカテゴリを導出
  */
 export function getRelevanceCategory(score: number): RelevanceCategory {
-  if (score >= RELEVANCE_CONFIG.highThreshold) return "HIGH";
-  if (score >= RELEVANCE_CONFIG.mediumThreshold) return "MEDIUM";
+  if (score >= RELEVANCE_THRESHOLDS.HIGH) return "HIGH";
+  if (score >= RELEVANCE_THRESHOLDS.MEDIUM) return "MEDIUM";
   return "LOW";
 }
 
@@ -128,7 +117,7 @@ export function getRelevanceCategory(score: number): RelevanceCategory {
  */
 export function filterByRelevanceScore(
   comments: InlineComment[],
-  minScore: number = RELEVANCE_CONFIG.minScore
+  minScore: number = getMinRelevanceScore()
 ): {
   accepted: InlineComment[];
   filtered: InlineComment[];

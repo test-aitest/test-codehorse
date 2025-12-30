@@ -3,6 +3,36 @@ import type { ParsedDiff, ParsedFile, ParsedHunk } from "./types";
 // 型を再エクスポート
 export type { ParsedDiff, ParsedFile, ParsedHunk } from "./types";
 
+// ファイルインデックスキャッシュ（O(n)検索をO(1)に最適化）
+const fileIndexCache = new WeakMap<ParsedDiff, Map<string, ParsedFile>>();
+
+/**
+ * ParsedDiffのファイルインデックスを取得または作成
+ * ファイルパスからParsedFileへのO(1)ルックアップを提供
+ */
+function getFileIndex(parsedDiff: ParsedDiff): Map<string, ParsedFile> {
+  let index = fileIndexCache.get(parsedDiff);
+  if (!index) {
+    index = new Map();
+    for (const file of parsedDiff.files) {
+      // 新旧両方のパスでインデックス化
+      if (file.newPath) index.set(file.newPath, file);
+      if (file.oldPath && file.oldPath !== file.newPath) {
+        index.set(file.oldPath, file);
+      }
+    }
+    fileIndexCache.set(parsedDiff, index);
+  }
+  return index;
+}
+
+/**
+ * ファイルパスからParsedFileをO(1)で取得
+ */
+export function getFileByPath(filePath: string, parsedDiff: ParsedDiff): ParsedFile | undefined {
+  return getFileIndex(parsedDiff).get(filePath);
+}
+
 // pr-agentの正規表現パターンを参考にしたDiffパーサー
 // https://github.com/qodo-ai/pr-agent/blob/main/pr_agent/algo/git_patch_processing.py
 
@@ -260,9 +290,8 @@ export function findDiffPosition(
   parsedDiff: ParsedDiff,
   side: "old" | "new" = "new"
 ): number | null {
-  const file = parsedDiff.files.find(
-    (f) => f.newPath === filePath || f.oldPath === filePath
-  );
+  // O(1)ルックアップを使用
+  const file = getFileByPath(filePath, parsedDiff);
   if (!file) return null;
 
   let cumulativeDiffPosition = 0;
@@ -299,9 +328,8 @@ export function getHunkRanges(
   filePath: string,
   parsedDiff: ParsedDiff
 ): Array<{ newStart: number; newEnd: number; oldStart: number; oldEnd: number }> {
-  const file = parsedDiff.files.find(
-    (f) => f.newPath === filePath || f.oldPath === filePath
-  );
+  // O(1)ルックアップを使用
+  const file = getFileByPath(filePath, parsedDiff);
   if (!file) return [];
 
   return file.hunks.map((hunk) => ({
