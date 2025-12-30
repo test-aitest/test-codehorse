@@ -10,6 +10,7 @@ import { generateText } from "ai";
 import { z } from "zod";
 import type { InlineComment } from "./schemas";
 import { parseAndValidateJson } from "./json-utils";
+import { getReflectionThreshold as getThreshold } from "./constants";
 
 // ========================================
 // 設定
@@ -17,9 +18,6 @@ import { parseAndValidateJson } from "./json-utils";
 
 // 反省機能の有効/無効
 const REFLECTION_ENABLED = process.env.AI_REFLECTION_ENABLED !== "false";
-
-// 提案を採用する最低スコア（1-10）
-const REFLECTION_THRESHOLD = parseInt(process.env.AI_REFLECTION_THRESHOLD || "7", 10);
 
 // ========================================
 // スキーマ定義
@@ -215,7 +213,7 @@ export async function reflectOnReview(
 export function filterCommentsByReflection(
   comments: InlineComment[],
   reflection: ReflectionResult,
-  threshold: number = REFLECTION_THRESHOLD
+  threshold: number = getThreshold()
 ): {
   accepted: InlineComment[];
   rejected: Array<{ comment: InlineComment; validation: SuggestionValidation }>;
@@ -292,7 +290,7 @@ export function isReflectionEnabled(): boolean {
  * 現在の閾値を取得
  */
 export function getReflectionThreshold(): number {
-  return REFLECTION_THRESHOLD;
+  return getThreshold();
 }
 
 /**

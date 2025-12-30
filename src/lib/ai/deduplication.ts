@@ -6,6 +6,7 @@
  */
 
 import type { InlineComment } from "./schemas";
+import { SEVERITY_ORDER } from "./constants";
 
 // ========================================
 // 設定
@@ -401,14 +402,6 @@ export function findAllSimilarityMatches(
 // ========================================
 // コメント優先度
 // ========================================
-
-// 深刻度の優先順位
-const SEVERITY_ORDER: Record<string, number> = {
-  CRITICAL: 4,
-  IMPORTANT: 3,
-  INFO: 2,
-  NITPICK: 1,
-};
 
 /**
  * 2つのコメントを比較し、保持すべきものを決定

@@ -3,6 +3,8 @@
  * GitHubのワンクリック適用可能なコード提案形式に変換
  */
 
+import { SEVERITY_EMOJI, RELEVANCE_EMOJI } from "../ai/constants";
+
 /**
  * GitHubのsuggestion block形式でコード提案をフォーマット
  * https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/creating-and-highlighting-code-blocks
@@ -25,25 +27,14 @@ ${suggestion}
  * 深刻度に対応する絵文字を取得
  */
 export function getSeverityEmoji(severity: string): string {
-  const emojiMap: Record<string, string> = {
-    CRITICAL: "🔴",
-    IMPORTANT: "🟠",
-    INFO: "🔵",
-    NITPICK: "⚪",
-  };
-  return emojiMap[severity] || "💬";
+  return SEVERITY_EMOJI[severity as keyof typeof SEVERITY_EMOJI] || "💬";
 }
 
 /**
  * 関連性カテゴリに対応する絵文字を取得
  */
 export function getRelevanceCategoryEmoji(category: string): string {
-  const emojiMap: Record<string, string> = {
-    HIGH: "⬆️",
-    MEDIUM: "➡️",
-    LOW: "⬇️",
-  };
-  return emojiMap[category] || "";
+  return RELEVANCE_EMOJI[category as keyof typeof RELEVANCE_EMOJI] || "";
 }
 
 /**

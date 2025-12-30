@@ -4,8 +4,8 @@ import {
   ReviewResultSchema,
   type ReviewResult,
   filterByRelevanceScore,
-  RELEVANCE_CONFIG,
 } from "./schemas";
+import { getMinRelevanceScore, MAX_INPUT_TOKENS, RESERVED_OUTPUT_TOKENS } from "./constants";
 import {
   REVIEW_SYSTEM_PROMPT,
   buildReviewPrompt,
@@ -38,9 +38,6 @@ import {
   formatDeduplicationSummary,
   type DeduplicationResult,
 } from "./deduplication";
-
-// レビュー生成の最大入力トークン数
-const MAX_INPUT_TOKENS = 100000;
 
 export interface GenerateReviewParams {
   prTitle: string;
@@ -351,7 +348,7 @@ export async function generateReview(
       countTokens(prTitle) +
       countTokens(prBody || "");
     const ragTokens = ragContext ? countTokens(ragContext) : 0;
-    const availableTokens = MAX_INPUT_TOKENS - baseTokens - ragTokens - 1000;
+    const availableTokens = MAX_INPUT_TOKENS - baseTokens - ragTokens - RESERVED_OUTPUT_TOKENS;
 
     if (countTokens(diffContent) > availableTokens) {
       console.warn(
@@ -414,16 +411,14 @@ export async function generateReview(
 
   // 関連性スコアでフィルタリング（Phase 4）
   if (filteredComments.length > 0) {
-    const scoreFilter = filterByRelevanceScore(
-      filteredComments,
-      RELEVANCE_CONFIG.minScore
-    );
+    const minScore = getMinRelevanceScore();
+    const scoreFilter = filterByRelevanceScore(filteredComments, minScore);
     const filteredByScore =
       filteredComments.length - scoreFilter.accepted.length;
 
     if (filteredByScore > 0) {
       console.log(
-        `[AI Review] Relevance score filtered ${filteredByScore} comments (minScore: ${RELEVANCE_CONFIG.minScore})`
+        `[AI Review] Relevance score filtered ${filteredByScore} comments (minScore: ${minScore})`
       );
     }
 

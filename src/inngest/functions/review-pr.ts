@@ -37,12 +37,7 @@ import {
   type ImpactAnalysisResult,
 } from "@/lib/analysis";
 import { handleInngestError } from "@/lib/errors";
-import {
-  deduplicateComments as crossPRDeduplicateComments,
-  recordCommentOccurrence,
-  formatDeduplicationSummary as formatCrossPRDeduplicationSummary,
-  type DeduplicationComment,
-} from "@/lib/ai/persistence";
+import { recordCommentOccurrence } from "@/lib/ai/persistence";
 
 /**
  * PR Opened イベントを処理してフルレビューを実行
@@ -372,73 +367,8 @@ export const reviewPR = inngest.createFunction(
       return review;
     });
 
-    // Step 7: クロスPR重複排除（Phase 1）- 一時的に無効化
-    const filteredReview = await step.run(
-      "cross-pr-deduplication",
-      async () => {
-        // 一時的に無効化 - 全てのコメントをそのまま返す
-        return aiReview;
-
-        /* クロスPR重複排除（コメントアウト）
-      if (!aiReview || aiReview.inlineComments.length === 0) {
-        return aiReview;
-      }
-
-      try {
-        // InlineComment を DeduplicationComment に変換
-        const deduplicationComments: DeduplicationComment[] = aiReview.inlineComments.map(
-          (comment, index) => ({
-            tempId: `comment-${index}`,
-            body: comment.body,
-            filePath: comment.path,
-            lineNumber: comment.endLine,
-            severity: comment.severity as "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
-          })
-        );
-
-        // クロスPR重複排除を実行
-        const dedupResult = await crossPRDeduplicateComments({
-          repositoryId: dbSetup.repositoryId,
-          comments: deduplicationComments,
-          similarityThreshold: 0.85,
-          includeResolved: false,
-          includeAcknowledged: false,
-        });
-
-        if (dedupResult.stats.duplicateCount > 0) {
-          console.log(
-            `[Inngest] Cross-PR deduplication: ${formatCrossPRDeduplicationSummary(dedupResult)}`
-          );
-
-          // 重複としてマークされたコメントのtempIdを取得
-          const duplicateTempIds = new Set(dedupResult.duplicates.map((d) => d.tempId));
-
-          // 重複を除外したコメントリストを作成
-          const filteredComments = aiReview.inlineComments.filter(
-            (_, index) => !duplicateTempIds.has(`comment-${index}`)
-          );
-
-          return {
-            ...aiReview,
-            inlineComments: filteredComments,
-            result: {
-              ...aiReview.result,
-              comments: aiReview.result.comments.filter(
-                (_, index) => !duplicateTempIds.has(`comment-${index}`)
-              ),
-            },
-          };
-        }
-
-        return aiReview;
-      } catch (error) {
-        console.error("[Inngest] Cross-PR deduplication failed:", error);
-        // エラー時は元のレビューをそのまま返す
-        return aiReview;
-      }
-      */
-      }
-    );
+    // Step 7: レビューをそのまま使用（クロスPR重複排除は無効化）
+    const filteredReview = aiReview;
 
     // Step 8: レビュー結果をDBに保存
     await step.run("save-review", async () => {
@@ -1061,67 +991,8 @@ export const reviewPRIncremental = inngest.createFunction(
       return review;
     });
 
-    // Step 7: クロスPR重複排除（Phase 1）- 一時的に無効化
-    const filteredIncrementalReview = await step.run(
-      "cross-pr-deduplication",
-      async () => {
-        // 一時的に無効化 - 全てのコメントをそのまま返す
-        return aiReview;
-
-        /* クロスPR重複排除（コメントアウト）
-      if (!aiReview || aiReview.inlineComments.length === 0) {
-        return aiReview;
-      }
-
-      try {
-        const deduplicationComments: DeduplicationComment[] = aiReview.inlineComments.map(
-          (comment, index) => ({
-            tempId: `comment-${index}`,
-            body: comment.body,
-            filePath: comment.path,
-            lineNumber: comment.endLine,
-            severity: comment.severity as "CRITICAL" | "IMPORTANT" | "INFO" | "NITPICK",
-          })
-        );
-
-        const dedupResult = await crossPRDeduplicateComments({
-          repositoryId: dbSetup.repositoryId,
-          comments: deduplicationComments,
-          similarityThreshold: 0.85,
-          includeResolved: false,
-          includeAcknowledged: false,
-        });
-
-        if (dedupResult.stats.duplicateCount > 0) {
-          console.log(
-            `[Inngest] Cross-PR deduplication (incremental): ${formatCrossPRDeduplicationSummary(dedupResult)}`
-          );
-
-          const duplicateTempIds = new Set(dedupResult.duplicates.map((d) => d.tempId));
-          const filteredComments = aiReview.inlineComments.filter(
-            (_, index) => !duplicateTempIds.has(`comment-${index}`)
-          );
-
-          return {
-            ...aiReview,
-            inlineComments: filteredComments,
-            result: {
-              ...aiReview.result,
-              comments: aiReview.result.comments.filter(
-                (_, index) => !duplicateTempIds.has(`comment-${index}`)
-              ),
-            },
-          };
-        }
-
-        return aiReview;
-      } catch (error) {
-        console.error("[Inngest] Cross-PR deduplication failed:", error);
-        return aiReview;
-      }
-      */
-      }
-    );
+    // Step 7: レビューをそのまま使用（クロスPR重複排除は無効化）
+    const filteredIncrementalReview = aiReview;
 
     // Step 8: 結果をDBに保存
     await step.run("save-review", async () => {

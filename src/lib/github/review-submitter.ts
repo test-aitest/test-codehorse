@@ -51,22 +51,13 @@ export async function submitReviewWithFallback(
   const { body, comments, event } = options;
 
   // Step 1: コメント位置を検証・調整
-  console.log(`[Review] Validating ${comments.length} comments`);
   const validatedComments = validateAndAdjustComments(comments, parsedDiff);
   const validComments = validatedComments.valid;
   const invalidComments = validatedComments.invalid;
-  console.log(
-    `[Review] Valid: ${validComments.length}, Invalid: ${invalidComments.length}`
-  );
 
   // 無効なコメントがあればサマリーに追加
-  // テストです
-  // さらにテスト
   let updatedBody = body;
   if (invalidComments.length > 0) {
-    console.warn(
-      `[Review] ${invalidComments.length} comments have invalid positions`
-    );
     updatedBody = appendInvalidCommentsToSummary(body, invalidComments);
   }
 

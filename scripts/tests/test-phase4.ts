@@ -7,9 +7,9 @@
 import {
   getRelevanceCategory,
   filterByRelevanceScore,
-  RELEVANCE_CONFIG,
   type InlineComment,
 } from "../../src/lib/ai/schemas";
+import { getMinRelevanceScore, RELEVANCE_THRESHOLDS } from "../../src/lib/ai/constants";
 import {
   formatRelevanceScore,
   getRelevanceCategoryEmoji,
@@ -59,10 +59,11 @@ function createComment(
 function testConfiguration() {
   console.log("\n⚙️ 設定テスト");
 
-  logTest("RELEVANCE_CONFIG.minScore is a number", typeof RELEVANCE_CONFIG.minScore === "number");
-  logTest("RELEVANCE_CONFIG.highThreshold is 9", RELEVANCE_CONFIG.highThreshold === 9);
-  logTest("RELEVANCE_CONFIG.mediumThreshold is 7", RELEVANCE_CONFIG.mediumThreshold === 7);
-  logTest("minScore is between 1-10", RELEVANCE_CONFIG.minScore >= 1 && RELEVANCE_CONFIG.minScore <= 10);
+  const minScore = getMinRelevanceScore();
+  logTest("getMinRelevanceScore() is a number", typeof minScore === "number");
+  logTest("RELEVANCE_THRESHOLDS.HIGH is 9", RELEVANCE_THRESHOLDS.HIGH === 9);
+  logTest("RELEVANCE_THRESHOLDS.MEDIUM is 7", RELEVANCE_THRESHOLDS.MEDIUM === 7);
+  logTest("minScore is between 1-10", minScore >= 1 && minScore <= 10);
 }
 
 // ========================================
@@ -237,7 +238,7 @@ async function main() {
   // 環境設定
   console.log("\n📋 環境設定:");
   console.log(`  - AI_RELEVANCE_MIN_SCORE: ${process.env.AI_RELEVANCE_MIN_SCORE ?? "(default: 5)"}`);
-  console.log(`  - Current minScore: ${RELEVANCE_CONFIG.minScore}`);
+  console.log(`  - Current minScore: ${getMinRelevanceScore()}`);
 
   testConfiguration();
   testGetRelevanceCategory();
