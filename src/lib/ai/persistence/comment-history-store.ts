@@ -216,7 +216,7 @@ export async function recordCommentOccurrence(
 // ========================================
 
 /**
- * コメントを解決済みとしてマークする
+ * コメントを解決済みとしてマークする（テスト）
  */
 export async function markAsResolved(input: ResolutionInput): Promise<void> {
   // 解決記録を作成
