@@ -104,6 +104,7 @@ export const LANGUAGE_EXTENSIONS: Record<SupportedLanguage, string> = {
   typescript: 'ts',
   java: 'java',
   go: 'go',
+  swift: 'swift',
 };
 
 /**
@@ -115,4 +116,5 @@ export const LANGUAGE_IMAGES: Record<SupportedLanguage, string> = {
   typescript: 'leetcode-runner:node',
   java: 'leetcode-runner:java',
   go: 'leetcode-runner:go',
+  swift: 'leetcode-runner:swift',
 };

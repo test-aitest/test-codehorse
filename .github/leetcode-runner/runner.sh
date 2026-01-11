@@ -440,6 +440,174 @@ MAIN_EOF
     timeout "$TIMEOUT" ./solution "$input" "$expected" 2>&1
 }
 
+# Swift実行
+run_swift() {
+    local code_file="$1"
+    local input="$2"
+    local expected="$3"
+
+    local work_dir="/tmp/swift_work"
+    rm -rf "$work_dir"
+    mkdir -p "$work_dir"
+
+    # ヘルパーをコピー
+    cp "$HELPER_DIR/swift/LeetCodeHelper.swift" "$work_dir/"
+
+    # ユーザーコードをコピー
+    cp "$code_file" "$work_dir/Solution.swift"
+
+    # クラス/構造体名を抽出（Solution）
+    local has_solution_class=$(grep -E 'class\s+Solution|struct\s+Solution' "$work_dir/Solution.swift" || echo "")
+
+    # メソッド名を抽出（最初の func を探す）
+    local method_name=$(grep -E '^\s*func\s+\w+' "$work_dir/Solution.swift" | head -1 | sed -E 's/.*func\s+(\w+).*/\1/')
+
+    # main.swift作成
+    cat > "$work_dir/main.swift" << MAIN_EOF
+import Foundation
+
+// 入力をパース（LeetCode形式）
+func parseLeetCodeInputs(_ input: String) -> [String] {
+    var results: [String] = []
+    var current = ""
+    var bracketDepth = 0
+
+    for char in input {
+        if char == "[" {
+            bracketDepth += 1
+            current.append(char)
+        } else if char == "]" {
+            bracketDepth -= 1
+            current.append(char)
+        } else if char == "," && bracketDepth == 0 {
+            results.append(extractValue(current))
+            current = ""
+        } else {
+            current.append(char)
+        }
+    }
+
+    if !current.isEmpty {
+        results.append(extractValue(current))
+    }
+
+    return results
+}
+
+func extractValue(_ s: String) -> String {
+    if let eqIndex = s.firstIndex(of: "=") {
+        return String(s[s.index(after: eqIndex)...]).trimmingCharacters(in: .whitespaces)
+    }
+    return s.trimmingCharacters(in: .whitespaces)
+}
+
+// 配列パース
+func parseIntArray(_ s: String) -> [Int] {
+    let trimmed = s.trimmingCharacters(in: .whitespaces)
+    if trimmed.isEmpty || trimmed == "[]" { return [] }
+
+    if let data = trimmed.data(using: .utf8),
+       let arr = try? JSONSerialization.jsonObject(with: data) as? [Int] {
+        return arr
+    }
+
+    let cleaned = trimmed
+        .replacingOccurrences(of: "[", with: "")
+        .replacingOccurrences(of: "]", with: "")
+    return cleaned.split(separator: ",").compactMap { Int(\$0.trimmingCharacters(in: .whitespaces)) }
+}
+
+func parseInt(_ s: String) -> Int {
+    return Int(s.trimmingCharacters(in: .whitespaces)) ?? 0
+}
+
+func parseString(_ s: String) -> String {
+    return s.trimmingCharacters(in: .whitespaces)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+}
+
+// 出力フォーマット
+func formatOutput(_ val: Any) -> String {
+    if let arr = val as? [Int] {
+        if let data = try? JSONSerialization.data(withJSONObject: arr),
+           let str = String(data: data, encoding: .utf8) {
+            return str
+        }
+        return "[\(arr.map { String(\$0) }.joined(separator: ","))]"
+    } else if let arr = val as? [String] {
+        if let data = try? JSONSerialization.data(withJSONObject: arr),
+           let str = String(data: data, encoding: .utf8) {
+            return str
+        }
+        return "[]"
+    } else if let b = val as? Bool {
+        return b ? "true" : "false"
+    } else if let n = val as? Int {
+        return String(n)
+    } else if let s = val as? String {
+        return s
+    }
+    return String(describing: val)
+}
+
+// メイン実行
+let args = CommandLine.arguments
+if args.count < 3 {
+    print("OUTPUT:ERROR_ARGS")
+    exit(1)
+}
+
+let inputStr = args[1]
+let _ = args[2] // expectedStr
+
+let solution = Solution()
+let inputs = parseLeetCodeInputs(inputStr)
+
+// 入力数に応じて呼び出し
+let result: Any
+switch inputs.count {
+case 1:
+    // 配列 or 単一値判定
+    let input0 = inputs[0]
+    if input0.hasPrefix("[") {
+        result = solution.${method_name}(parseIntArray(input0))
+    } else if let intVal = Int(input0) {
+        result = solution.${method_name}(intVal)
+    } else {
+        result = solution.${method_name}(parseString(input0))
+    }
+case 2:
+    let input0 = inputs[0]
+    let input1 = inputs[1]
+    if input0.hasPrefix("[") {
+        if let intVal = Int(input1.trimmingCharacters(in: .whitespaces)) {
+            result = solution.${method_name}(parseIntArray(input0), intVal)
+        } else if input1.hasPrefix("[") {
+            result = solution.${method_name}(parseIntArray(input0), parseIntArray(input1))
+        } else {
+            result = solution.${method_name}(parseIntArray(input0), parseString(input1))
+        }
+    } else {
+        result = solution.${method_name}(parseString(input0), parseString(input1))
+    }
+case 3:
+    result = solution.${method_name}(parseIntArray(inputs[0]), parseInt(inputs[1]), parseInt(inputs[2]))
+default:
+    print("OUTPUT:ERROR_UNSUPPORTED_INPUTS")
+    exit(1)
+}
+
+print("OUTPUT:\(formatOutput(result))")
+MAIN_EOF
+
+    # ビルド
+    cd "$work_dir"
+    swiftc -O -o solution LeetCodeHelper.swift Solution.swift main.swift 2>&1 || error_exit "Swift build failed"
+
+    # 実行
+    timeout "$TIMEOUT" ./solution "$input" "$expected" 2>&1
+}
+
 # メイン処理
 main() {
     if [ -z "$LANGUAGE" ] || [ -z "$CODE_FILE" ] || [ -z "$TEST_CASES_FILE" ] || [ -z "$OUTPUT_FILE" ]; then
@@ -488,6 +656,9 @@ main() {
                     ;;
                 go)
                     result=$(measure_time run_go "$CODE_FILE" "$input" "$expected")
+                    ;;
+                swift)
+                    result=$(measure_time run_swift "$CODE_FILE" "$input" "$expected")
                     ;;
                 *)
                     error_exit "Unsupported language: $LANGUAGE"
