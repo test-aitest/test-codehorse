@@ -73,7 +73,7 @@ jobs:
           chmod 777 results
 
           # Decode code from base64
-          echo "${{ inputs.code }}" | base64 -d > workspace/solution.${{ inputs.language == 'python' && 'py' || inputs.language == 'javascript' && 'js' || inputs.language == 'typescript' && 'ts' || inputs.language == 'java' && 'java' || 'go' }}
+          echo "${{ inputs.code }}" | base64 -d > workspace/solution.${{ inputs.language == 'python' && 'py' || inputs.language == 'javascript' && 'js' || inputs.language == 'typescript' && 'ts' || inputs.language == 'java' && 'java' || inputs.language == 'go' && 'go' || 'swift' }}
 
           # Decode test cases from base64
           echo "${{ inputs.test_cases }}" | base64 -d > workspace/test_cases.json
@@ -94,6 +94,7 @@ jobs:
             typescript) echo "ext=ts" >> $GITHUB_OUTPUT ;;
             java) echo "ext=java" >> $GITHUB_OUTPUT ;;
             go) echo "ext=go" >> $GITHUB_OUTPUT ;;
+            swift) echo "ext=swift" >> $GITHUB_OUTPUT ;;
           esac
 
       - name: Run benchmark in Docker
