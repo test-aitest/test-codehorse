@@ -25,6 +25,10 @@ import {
   handleUserAction,
   cleanupExpiredComments,
   scheduledCleanup,
+  // LeetCode最適解提案
+  leetcodeSolutionSubmitted,
+  onUserBenchmarkCompleted,
+  onAllBenchmarksCompleted,
 } from "@/inngest/functions";
 
 // Inngest サーバーハンドラーを作成
@@ -56,5 +60,9 @@ export const { GET, POST, PUT } = serve({
     handleCheckRunCompleted,
     // Phase 10: セキュリティスキャン
     scanSecurityForPR,
+    // LeetCode最適解提案
+    leetcodeSolutionSubmitted,
+    onUserBenchmarkCompleted,
+    onAllBenchmarksCompleted,
   ],
 });
