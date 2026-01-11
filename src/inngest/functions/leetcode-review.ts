@@ -116,12 +116,12 @@ export const leetcodeSolutionSubmitted = inngest.createFunction(
             language = detectedLang;
             filePath = pathMatch[1];
 
-            // コードを抽出
-            const codeMatch = file.match(/\+([^-][\s\S]*?)(?=diff --git|$)/);
-            if (codeMatch) {
-              userCode = codeMatch[1]
+            // コードを抽出（@@以降の実際のコード部分のみ）
+            const codeSection = file.split(/@@[^@]+@@/).slice(1).join("\n");
+            if (codeSection) {
+              userCode = codeSection
                 .split("\n")
-                .filter((line) => line.startsWith("+"))
+                .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
                 .map((line) => line.slice(1))
                 .join("\n");
             }
