@@ -4,7 +4,6 @@
  */
 
 import type {
-  LeetCodeSubmission,
   SupportedLanguage,
   TestCase,
 } from "./types";
@@ -79,6 +78,7 @@ export function detectLanguage(filePath: string): SupportedLanguage | null {
     ".ts": "typescript",
     ".java": "java",
     ".go": "go",
+    ".swift": "swift",
   };
 
   return extensionMap[ext] || null;

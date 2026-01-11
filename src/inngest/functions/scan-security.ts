@@ -137,6 +137,7 @@ export const scanSecurityForPR = inngest.createFunction(
             f.newPath.endsWith(".php") ||
             f.newPath.endsWith(".java") ||
             f.newPath.endsWith(".go") ||
+            f.newPath.endsWith(".swift") ||
             f.newPath.endsWith(".rs") ||
             f.newPath.endsWith(".yaml") ||
             f.newPath.endsWith(".yml") ||
