@@ -868,6 +868,7 @@ enum LeetCodeLanguage {
   TYPESCRIPT
   JAVA
   GO
+  SWIFT
 }
 
 // LeetCode評価ステータス

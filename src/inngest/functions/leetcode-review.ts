@@ -61,6 +61,7 @@ const LANG_TO_PRISMA = {
   typescript: "TYPESCRIPT",
   java: "JAVA",
   go: "GO",
+  swift: "SWIFT",
 } as const;
 
 /**
@@ -72,6 +73,7 @@ const PRISMA_TO_LANG = {
   TYPESCRIPT: "typescript",
   JAVA: "java",
   GO: "go",
+  SWIFT: "swift",
 } as const;
 
 /**

@@ -9,7 +9,8 @@ export type SupportedLanguage =
   | "javascript"
   | "typescript"
   | "java"
-  | "go";
+  | "go"
+  | "swift";
 
 // 言語の拡張子マッピング
 export const LANGUAGE_EXTENSIONS: Record<string, SupportedLanguage> = {
@@ -18,6 +19,7 @@ export const LANGUAGE_EXTENSIONS: Record<string, SupportedLanguage> = {
   ".ts": "typescript",
   ".java": "java",
   ".go": "go",
+  ".swift": "swift",
 };
 
 // テストケース

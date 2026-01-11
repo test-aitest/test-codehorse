@@ -1,5 +1,5 @@
 # LeetCode Runner Docker Image
-# 5言語対応 (Python, JavaScript, TypeScript, Java, Go)
+# 6言語対応 (Python, JavaScript, TypeScript, Java, Go, Swift)
 
 FROM ubuntu:22.04
 
@@ -45,6 +45,27 @@ ENV PATH=$PATH:/usr/local/go/bin
 ENV GOPATH=/go
 ENV PATH=$PATH:$GOPATH/bin
 
+# Swift 5.9
+RUN apt-get update && apt-get install -y \
+    binutils \
+    libc6-dev \
+    libcurl4-openssl-dev \
+    libedit2 \
+    libgcc-11-dev \
+    libpython3.11 \
+    libsqlite3-0 \
+    libstdc++-11-dev \
+    libxml2-dev \
+    libz3-dev \
+    pkg-config \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN wget -q https://download.swift.org/swift-5.9.2-release/ubuntu2204/swift-5.9.2-RELEASE/swift-5.9.2-RELEASE-ubuntu22.04.tar.gz \
+    && tar -xzf swift-5.9.2-RELEASE-ubuntu22.04.tar.gz -C /usr/local --strip-components=1 \
+    && rm swift-5.9.2-RELEASE-ubuntu22.04.tar.gz
+ENV PATH=$PATH:/usr/local/bin
+
 # LeetCode ヘルパーライブラリのセットアップ
 WORKDIR /leetcode
 
@@ -61,6 +82,9 @@ COPY helpers/java/TreeNode.java /leetcode/helpers/java/
 
 # Go ヘルパー
 COPY helpers/go/leetcode_helper.go /leetcode/helpers/go/
+
+# Swift ヘルパー
+COPY helpers/swift/LeetCodeHelper.swift /leetcode/helpers/swift/
 
 # ランナースクリプト
 COPY runner.sh /leetcode/runner.sh

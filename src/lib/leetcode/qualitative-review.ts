@@ -201,6 +201,7 @@ function getLanguageName(language: SupportedLanguage): string {
     typescript: "TypeScript",
     java: "Java",
     go: "Go",
+    swift: "Swift",
   };
   return names[language];
 }

@@ -92,6 +92,22 @@ const BLOCKED_PATTERNS: Record<SupportedLanguage, { pattern: RegExp; description
     { pattern: /http\.Post\s*\(/, description: "HTTP post" },
     { pattern: /exec\.Command\s*\(/, description: "Command execution" },
   ],
+
+  swift: [
+    { pattern: /Process\s*\(/, description: "Process execution" },
+    { pattern: /FileManager\b/, description: "File manager access" },
+    { pattern: /FileHandle\b/, description: "File handle access" },
+    { pattern: /URLSession\b/, description: "Network session" },
+    { pattern: /URL\s*\(string:/, description: "URL creation" },
+    { pattern: /try\s*!\s*FileManager/, description: "Forced file operation" },
+    { pattern: /\.write\s*\(toFile:/, description: "File write operation" },
+    { pattern: /\.removeItem\s*\(/, description: "File removal" },
+    { pattern: /\.createFile\s*\(/, description: "File creation" },
+    { pattern: /Shell\s*\(/, description: "Shell execution" },
+    { pattern: /NSTask\b/, description: "NS Task (process execution)" },
+    { pattern: /dlopen\s*\(/, description: "Dynamic library loading" },
+    { pattern: /exit\s*\(/, description: "Process exit" },
+  ],
 };
 
 // 共通の危険パターン（全言語）
