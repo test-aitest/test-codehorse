@@ -62,9 +62,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 RUN wget -q https://download.swift.org/swift-5.9.2-release/ubuntu2204/swift-5.9.2-RELEASE/swift-5.9.2-RELEASE-ubuntu22.04.tar.gz \
-    && tar -xzf swift-5.9.2-RELEASE-ubuntu22.04.tar.gz -C /usr/local --strip-components=1 \
+    && tar -xzf swift-5.9.2-RELEASE-ubuntu22.04.tar.gz -C /usr --strip-components=2 \
     && rm swift-5.9.2-RELEASE-ubuntu22.04.tar.gz
-ENV PATH=$PATH:/usr/local/bin
 
 # LeetCode ヘルパーライブラリのセットアップ
 WORKDIR /leetcode
