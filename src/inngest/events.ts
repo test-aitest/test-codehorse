@@ -283,4 +283,94 @@ export type Events = {
       expirationDays?: number;
     };
   };
+
+  // ========================================
+  // LeetCode Events (LeetCode最適解提案機能)
+  // ========================================
+
+  /** LeetCodeソリューションが提出された（PR作成時） */
+  "leetcode/solution.submitted": {
+    data: {
+      installationId: number;
+      owner: string;
+      repo: string;
+      prNumber: number;
+      headSha: string;
+      /** 評価ID（DB上のLeetCodeEvaluationのID） */
+      evaluationId: string;
+      /** 問題URL */
+      problemUrl: string;
+      /** 問題ID */
+      problemId: string;
+      /** 言語 */
+      language: "python" | "javascript" | "typescript" | "java" | "go";
+    };
+  };
+
+  /** ユーザーコードのベンチマークが完了した */
+  "leetcode/user-benchmark.completed": {
+    data: {
+      evaluationId: string;
+      owner: string;
+      repo: string;
+      prNumber: number;
+      /** ベンチマーク結果 */
+      result: {
+        totalRuns: number;
+        successfulRuns: number;
+        averageTimeMs: number;
+        allCorrect: boolean;
+        failedTestCases?: {
+          index: number;
+          input: string;
+          expected: string;
+          actual: string;
+        }[];
+      };
+    };
+  };
+
+  /** 最適解のベンチマークが完了した */
+  "leetcode/optimal-benchmark.completed": {
+    data: {
+      evaluationId: string;
+      owner: string;
+      repo: string;
+      prNumber: number;
+      solutionIndex: number;
+      /** ベンチマーク結果 */
+      result: {
+        totalRuns: number;
+        successfulRuns: number;
+        averageTimeMs: number;
+        allCorrect: boolean;
+      };
+    };
+  };
+
+  /** 全ての最適解ベンチマークが完了した */
+  "leetcode/all-benchmarks.completed": {
+    data: {
+      evaluationId: string;
+      owner: string;
+      repo: string;
+      prNumber: number;
+      /** 最速解のインデックス */
+      bestSolutionIndex: number;
+    };
+  };
+
+  /** LeetCode評価が完了した */
+  "leetcode/evaluation.completed": {
+    data: {
+      evaluationId: string;
+      owner: string;
+      repo: string;
+      prNumber: number;
+      /** 成功したか */
+      success: boolean;
+      /** エラーメッセージ（失敗時） */
+      error?: string;
+    };
+  };
 };

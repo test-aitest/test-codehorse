@@ -1,0 +1,143 @@
+# LeetCode Benchmark Workflow
+# PRのLeetCodeソリューションをDocker内で実行してベンチマークを取る
+
+name: LeetCode Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      evaluation_id:
+        description: 'LeetCode Evaluation ID'
+        required: true
+        type: string
+      language:
+        description: 'Programming Language'
+        required: true
+        type: choice
+        options:
+          - python
+          - javascript
+          - typescript
+          - java
+          - go
+      code:
+        description: 'Base64 encoded user code'
+        required: true
+        type: string
+      test_cases:
+        description: 'Base64 encoded test cases JSON'
+        required: true
+        type: string
+      run_count:
+        description: 'Number of benchmark runs'
+        required: false
+        default: '20'
+        type: string
+      callback_url:
+        description: 'Callback URL to send results'
+        required: true
+        type: string
+
+env:
+  DOCKER_IMAGE: leetcode-runner
+  TIMEOUT_SECONDS: 10
+  MEMORY_LIMIT: 512m
+  CPU_LIMIT: 1
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.DOCKER_IMAGE }} .github/leetcode-runner/
+
+      - name: Prepare workspace
+        run: |
+          mkdir -p workspace
+
+          # Decode code from base64
+          echo "${{ inputs.code }}" | base64 -d > workspace/solution.${{ inputs.language == 'python' && 'py' || inputs.language == 'javascript' && 'js' || inputs.language == 'typescript' && 'ts' || inputs.language == 'java' && 'java' || 'go' }}
+
+          # Decode test cases from base64
+          echo "${{ inputs.test_cases }}" | base64 -d > workspace/test_cases.json
+
+          # Show files for debugging
+          echo "=== Solution file ==="
+          cat workspace/solution.*
+          echo ""
+          echo "=== Test cases ==="
+          cat workspace/test_cases.json
+
+      - name: Run benchmark in Docker
+        id: benchmark
+        run: |
+          # Determine file extension
+          case "${{ inputs.language }}" in
+            python) EXT="py" ;;
+            javascript) EXT="js" ;;
+            typescript) EXT="ts" ;;
+            java) EXT="java" ;;
+            go) EXT="go" ;;
+          esac
+
+          # Run Docker container with security constraints
+          docker run \
+            --rm \
+            --network=none \
+            --memory=${{ env.MEMORY_LIMIT }} \
+            --cpus=${{ env.CPU_LIMIT }} \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=100m \
+            -v "$(pwd)/workspace:/workspace:ro" \
+            -v "$(pwd)/.github/leetcode-runner/helpers:/leetcode/helpers:ro" \
+            ${{ env.DOCKER_IMAGE }} \
+            /bin/bash -c "
+              cp -r /workspace/* /tmp/
+              chmod +x /leetcode/runner.sh
+              /leetcode/runner.sh \
+                ${{ inputs.language }} \
+                /tmp/solution.${EXT} \
+                /tmp/test_cases.json \
+                /tmp/result.json \
+                ${{ inputs.run_count }} \
+                ${{ env.TIMEOUT_SECONDS }}
+              cat /tmp/result.json
+            " > benchmark_result.json 2>&1 || true
+
+          echo "=== Benchmark Result ==="
+          cat benchmark_result.json
+
+      - name: Send results to callback
+        run: |
+          # Check if result file exists and is valid JSON
+          if [ -f benchmark_result.json ] && jq empty benchmark_result.json 2>/dev/null; then
+            RESULT=$(cat benchmark_result.json)
+          else
+            RESULT='{"success": false, "error": "Benchmark execution failed"}'
+          fi
+
+          # Send result to callback URL
+          curl -X POST "${{ inputs.callback_url }}" \
+            -H "Content-Type: application/json" \
+            -H "X-Evaluation-ID: ${{ inputs.evaluation_id }}" \
+            -d "{
+              \"evaluationId\": \"${{ inputs.evaluation_id }}\",
+              \"language\": \"${{ inputs.language }}\",
+              \"result\": $RESULT
+            }"
+
+      - name: Upload benchmark result
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-result-${{ inputs.evaluation_id }}
+          path: benchmark_result.json
+          retention-days: 7
