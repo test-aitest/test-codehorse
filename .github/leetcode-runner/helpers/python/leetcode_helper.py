@@ -169,6 +169,51 @@ def parse_tree(s: str) -> Optional[TreeNode]:
 # 入力パース（汎用）
 # ========================================
 
+def parse_leetcode_input(s: str) -> list:
+    """
+    LeetCode形式の入力をパース
+    例: 'nums = [2,7,11,15], target = 9' -> [[2,7,11,15], 9]
+    """
+    s = s.strip()
+    if not s:
+        return []
+
+    # パラメータを分割（カンマで区切るが、配列内のカンマは無視）
+    params = []
+    current_param = ""
+    bracket_depth = 0
+
+    for char in s:
+        if char == '[':
+            bracket_depth += 1
+            current_param += char
+        elif char == ']':
+            bracket_depth -= 1
+            current_param += char
+        elif char == ',' and bracket_depth == 0:
+            # パラメータの区切り
+            params.append(current_param.strip())
+            current_param = ""
+        else:
+            current_param += char
+
+    if current_param.strip():
+        params.append(current_param.strip())
+
+    # 各パラメータから値を抽出してパース
+    result = []
+    for param in params:
+        # "name = value" 形式を処理
+        if '=' in param:
+            value_part = param.split('=', 1)[1].strip()
+        else:
+            value_part = param.strip()
+
+        result.append(parse_input(value_part))
+
+    return result
+
+
 def parse_input(s: str, type_hint: str = 'auto'):
     """
     入力文字列をパース
