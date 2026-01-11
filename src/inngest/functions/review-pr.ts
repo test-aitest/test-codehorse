@@ -38,6 +38,7 @@ import {
 } from "@/lib/analysis";
 import { handleInngestError } from "@/lib/errors";
 import { recordCommentOccurrence } from "@/lib/ai/persistence";
+import { isLeetCodePR } from "@/lib/leetcode";
 
 /**
  * PR Opened イベントを処理してフルレビューを実行
@@ -63,6 +64,18 @@ export const reviewPR = inngest.createFunction(
       prNumber,
       headSha,
     });
+
+    // Step 0: LeetCode PRかどうかを確認（LeetCode PRは別の関数で処理）
+    const isLeetCode = await step.run("check-leetcode-pr", async () => {
+      const octokit = await getInstallationOctokit(installationId);
+      const pr = await getPullRequestDetails(octokit, owner, repo, prNumber);
+      return isLeetCodePR(pr.body || "");
+    });
+
+    if (isLeetCode) {
+      console.log("[Inngest] LeetCode PR detected, skipping generic review");
+      return { status: "skipped", reason: "LeetCode PR - handled by leetcode-solution-submitted" };
+    }
 
     // Step 1: リポジトリとPRの情報を取得/作成
     const dbSetup = await step.run("setup-db", async () => {
