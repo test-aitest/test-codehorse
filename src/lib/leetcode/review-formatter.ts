@@ -30,7 +30,7 @@ export interface FormatOptions {
 }
 
 const DEFAULT_OPTIONS: FormatOptions = {
-  language: "ja",
+  language: "en",
   detailed: true,
   includeOptimalCode: true,
 };
