@@ -63,6 +63,8 @@ jobs:
       - name: Prepare workspace
         run: |
           mkdir -p workspace
+          mkdir -p results
+          chmod 777 results
 
           # Decode code from base64
           echo "${{ inputs.code }}" | base64 -d > workspace/solution.${{ inputs.language == 'python' && 'py' || inputs.language == 'javascript' && 'js' || inputs.language == 'typescript' && 'ts' || inputs.language == 'java' && 'java' || 'go' }}
@@ -100,25 +102,26 @@ jobs:
             --read-only \
             --tmpfs /tmp:rw,noexec,nosuid,size=100m \
             -v "$(pwd)/workspace:/workspace:ro" \
+            -v "$(pwd)/results:/results:rw" \
             -v "$(pwd)/.github/leetcode-runner/helpers:/leetcode/helpers:ro" \
             --entrypoint /bin/bash \
             ${{ env.DOCKER_IMAGE }} \
             -c "
               echo 'DEBUG: Starting container'
-              echo 'DEBUG: whoami:' && whoami
-              echo 'DEBUG: pwd:' && pwd
-              echo 'DEBUG: ls /workspace:' && ls -la /workspace/ || echo 'Cannot list /workspace'
-              echo 'DEBUG: Copying files...'
               cp -r /workspace/* /tmp/ || echo 'Copy failed'
-              echo 'DEBUG: ls /tmp:' && ls -la /tmp/
               echo 'DEBUG: Running runner.sh...'
-              /leetcode/runner.sh '${{ inputs.language }}' '/tmp/solution.${{ steps.ext.outputs.ext }}' '/tmp/test_cases.json' '/tmp/result.json' '${{ inputs.run_count }}' '${{ env.TIMEOUT_SECONDS }}' || echo 'Runner failed with exit code:' \$?
-              echo 'DEBUG: Result file:'
-              cat /tmp/result.json || echo 'No result file'
-            " > benchmark_result.json 2>&1 || true
+              /leetcode/runner.sh '${{ inputs.language }}' '/tmp/solution.${{ steps.ext.outputs.ext }}' '/tmp/test_cases.json' '/results/result.json' '${{ inputs.run_count }}' '${{ env.TIMEOUT_SECONDS }}' || echo 'Runner failed with exit code:' \$?
+            " 2>&1 || true
 
-          echo "=== Benchmark Result ==="
-          cat benchmark_result.json
+          # Copy result to expected location
+          if [ -f results/result.json ]; then
+            cp results/result.json benchmark_result.json
+            echo "=== Benchmark Result ==="
+            cat benchmark_result.json
+          else
+            echo '{"success": false, "error": "No result file generated"}' > benchmark_result.json
+            echo "=== No result file ==="
+          fi
 
       - name: Send results to callback
         run: |
