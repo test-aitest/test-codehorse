@@ -99,21 +99,21 @@ jobs:
             --tmpfs /tmp:rw,noexec,nosuid,size=100m \
             -v "$(pwd)/workspace:/workspace:ro" \
             -v "$(pwd)/.github/leetcode-runner/helpers:/leetcode/helpers:ro" \
-            -e "LANG=${{ inputs.language }}" \
-            -e "EXT=${EXT}" \
-            -e "RUN_COUNT=${{ inputs.run_count }}" \
-            -e "TIMEOUT=${{ env.TIMEOUT_SECONDS }}" \
+            -e "LEETCODE_LANG=${{ inputs.language }}" \
+            -e "LEETCODE_EXT=${EXT}" \
+            -e "LEETCODE_RUN_COUNT=${{ inputs.run_count }}" \
+            -e "LEETCODE_TIMEOUT=${{ env.TIMEOUT_SECONDS }}" \
             ${{ env.DOCKER_IMAGE }} \
             /bin/bash -c '
               cp -r /workspace/* /tmp/
               chmod +x /leetcode/runner.sh
               /leetcode/runner.sh \
-                "${LANG}" \
-                "/tmp/solution.${EXT}" \
+                "${LEETCODE_LANG}" \
+                "/tmp/solution.${LEETCODE_EXT}" \
                 /tmp/test_cases.json \
                 /tmp/result.json \
-                "${RUN_COUNT}" \
-                "${TIMEOUT}"
+                "${LEETCODE_RUN_COUNT}" \
+                "${LEETCODE_TIMEOUT}"
               cat /tmp/result.json
             ' > benchmark_result.json 2>&1 || true
 
