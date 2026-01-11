@@ -37,6 +37,7 @@ export class CodeRunner {
       code,
       testCases,
       runCount = this.config.defaultRunCount,
+      solutionIndex,
     } = request;
 
     // Base64エンコード
@@ -60,6 +61,7 @@ export class CodeRunner {
           test_cases: testCasesBase64,
           run_count: String(runCount),
           callback_url: callbackUrl,
+          solution_index: solutionIndex !== undefined ? String(solutionIndex) : '',
         },
       });
 

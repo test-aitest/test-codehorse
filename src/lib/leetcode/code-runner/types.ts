@@ -20,6 +20,8 @@ export interface ExecutionRequest {
   runCount?: number;
   /** タイムアウト（秒） */
   timeout?: number;
+  /** 最適解のインデックス（最適解ベンチマーク時のみ） */
+  solutionIndex?: number;
 }
 
 /**

@@ -91,70 +91,77 @@ export const leetcodeSolutionSubmitted = inngest.createFunction(
     const { owner, repo, prNumber, headSha, installationId } = event.data;
 
     // Step 1: LeetCode PRかどうかを確認
-    const prInfo = await step.run("check-leetcode-pr", async (): Promise<PRCheckResult> => {
-      const octokit = await getInstallationOctokit(installationId);
-      const pr = await getPullRequestDetails(octokit, owner, repo, prNumber);
+    const prInfo = await step.run(
+      "check-leetcode-pr",
+      async (): Promise<PRCheckResult> => {
+        const octokit = await getInstallationOctokit(installationId);
+        const pr = await getPullRequestDetails(octokit, owner, repo, prNumber);
 
-      if (!isLeetCodePR(pr.body || "")) {
-        return { isLeetCodePR: false };
-      }
+        if (!isLeetCodePR(pr.body || "")) {
+          return { isLeetCodePR: false };
+        }
 
-      const diff = await getPullRequestDiff(octokit, owner, repo, prNumber);
-      const description = parsePRDescription(pr.body || "");
+        const diff = await getPullRequestDiff(octokit, owner, repo, prNumber);
+        const description = parsePRDescription(pr.body || "");
 
-      // 言語を検出
-      const files = diff.split("diff --git").slice(1);
-      let language: SupportedLanguage | null = null;
-      let userCode = "";
-      let filePath = "";
+        // 言語を検出
+        const files = diff.split("diff --git").slice(1);
+        let language: SupportedLanguage | null = null;
+        let userCode = "";
+        let filePath = "";
 
-      for (const file of files) {
-        const pathMatch = file.match(/a\/(.+?) b\//);
-        if (pathMatch) {
-          const detectedLang = detectLanguage(pathMatch[1]);
-          if (detectedLang) {
-            language = detectedLang;
-            filePath = pathMatch[1];
+        for (const file of files) {
+          const pathMatch = file.match(/a\/(.+?) b\//);
+          if (pathMatch) {
+            const detectedLang = detectLanguage(pathMatch[1]);
+            if (detectedLang) {
+              language = detectedLang;
+              filePath = pathMatch[1];
 
-            // コードを抽出（@@以降の実際のコード部分のみ）
-            const codeSection = file.split(/@@[^@]+@@/).slice(1).join("\n");
-            if (codeSection) {
-              userCode = codeSection
-                .split("\n")
-                .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
-                .map((line) => line.slice(1))
+              // コードを抽出（@@以降の実際のコード部分のみ）
+              const codeSection = file
+                .split(/@@[^@]+@@/)
+                .slice(1)
                 .join("\n");
+              if (codeSection) {
+                userCode = codeSection
+                  .split("\n")
+                  .filter(
+                    (line) => line.startsWith("+") && !line.startsWith("+++")
+                  )
+                  .map((line) => line.slice(1))
+                  .join("\n");
+              }
+              break;
             }
-            break;
           }
         }
-      }
 
-      if (!language || !description.problemUrl) {
-        return { isLeetCodePR: false };
-      }
+        if (!language || !description.problemUrl) {
+          return { isLeetCodePR: false };
+        }
 
-      return {
-        isLeetCodePR: true,
-        problemUrl: description.problemUrl,
-        problemId: description.problemId,
-        testCases: description.testCases,
-        language,
-        userCode,
-        filePath,
-        headSha,
-      };
-    });
+        return {
+          isLeetCodePR: true,
+          problemUrl: description.problemUrl,
+          problemId: description.problemId,
+          testCases: description.testCases,
+          language,
+          userCode,
+          filePath,
+          headSha,
+        };
+      }
+    );
 
     if (!prInfo.isLeetCodePR) {
       console.log("[LeetCode] Not a LeetCode PR, skipping");
       return { status: "skipped", reason: "Not a LeetCode PR" };
     }
 
-    // 型ガード後のprInfoはLeetCodePRInfo型
-    const leetcodeInfo = prInfo as LeetCodePRInfo;
+    const leetcodeInfo = prInfo;
 
-    // Step 2: DB登録
+    // Step 2: 評価レコード作成
     const evaluation = await step.run("create-evaluation", async () => {
       // リポジトリを取得または作成
       let repository = await prisma.repository.findFirst({
@@ -172,28 +179,40 @@ export const leetcodeSolutionSubmitted = inngest.createFunction(
             installationId,
           },
         });
+      } else {
+        repository = await prisma.repository.update({
+          where: { id: repository.id },
+          data: { installationId },
+        });
       }
 
-      // PRを取得または作成（upsertで競合を回避）
-      const pullRequest = await prisma.pullRequest.upsert({
+      // PRを取得または作成
+      let pullRequest = await prisma.pullRequest.findFirst({
         where: {
-          repositoryId_number: {
-            repositoryId: repository.id,
-            number: prNumber,
-          },
-        },
-        update: {
-          headSha: leetcodeInfo.headSha,
-        },
-        create: {
           repositoryId: repository.id,
           number: prNumber,
-          title: `LeetCode: ${leetcodeInfo.problemId || "solution"}`,
-          headSha: leetcodeInfo.headSha,
-          baseSha: "",
-          author: "",
         },
       });
+
+      if (!pullRequest) {
+        pullRequest = await prisma.pullRequest.create({
+          data: {
+            repositoryId: repository.id,
+            number: prNumber,
+            title: `LeetCode Solution: ${leetcodeInfo.problemUrl}`,
+            author: "unknown",
+            baseSha: leetcodeInfo.headSha,
+            headSha: leetcodeInfo.headSha,
+          },
+        });
+      } else {
+        pullRequest = await prisma.pullRequest.update({
+          where: { id: pullRequest.id },
+          data: {
+            headSha: leetcodeInfo.headSha,
+          },
+        });
+      }
 
       // LeetCode評価を作成
       const leetCodeEval = await prisma.leetCodeEvaluation.create({
@@ -253,22 +272,19 @@ export const leetcodeSolutionSubmitted = inngest.createFunction(
       return { status: "failed", reason: "Security scan failed" };
     }
 
-    // Step 4: ベンチマークをトリガー
-    await step.run("trigger-benchmark", async () => {
+    // Step 4: ユーザーコードのベンチマークをトリガー
+    await step.run("trigger-user-benchmark", async () => {
       await prisma.leetCodeEvaluation.update({
         where: { id: evaluation.evaluationId },
         data: { status: "BENCHMARKING_USER" },
       });
 
       // GitHub Actionsにベンチマークをトリガー
-      const runner = new CodeRunner(
-        process.env.GITHUB_TOKEN || "",
-        {
-          owner,
-          repo,
-          callbackBaseUrl: process.env.NEXT_PUBLIC_APP_URL || "",
-        }
-      );
+      const runner = new CodeRunner(process.env.GITHUB_TOKEN || "", {
+        owner,
+        repo,
+        callbackBaseUrl: process.env.NEXT_PUBLIC_APP_URL || "",
+      });
 
       const result = await runner.triggerBenchmark({
         evaluationId: evaluation.evaluationId,
@@ -278,22 +294,6 @@ export const leetcodeSolutionSubmitted = inngest.createFunction(
       });
 
       return result;
-    });
-
-    // Step 5: イベント発行
-    await step.sendEvent("emit-submitted", {
-      name: "leetcode/solution.submitted",
-      data: {
-        installationId,
-        owner,
-        repo,
-        prNumber,
-        headSha,
-        evaluationId: evaluation.evaluationId,
-        problemUrl: leetcodeInfo.problemUrl,
-        problemId: leetcodeInfo.problemId || "",
-        language: leetcodeInfo.language,
-      },
     });
 
     return {
@@ -343,7 +343,7 @@ export const onUserBenchmarkCompleted = inngest.createFunction(
         return analyzeFailure(
           evaluation.userCode,
           language,
-          benchmarkResult.failedTestCases || [],
+          benchmarkResult.failedTestCases || []
         );
       });
 
@@ -359,10 +359,18 @@ export const onUserBenchmarkCompleted = inngest.createFunction(
             filePath: evaluation.filePath,
           },
           userBenchmark: benchmarkResult,
-          complexityAnalysis: { timeComplexity: "N/A", spaceComplexity: "N/A", explanation: "" },
+          complexityAnalysis: {
+            timeComplexity: "N/A",
+            spaceComplexity: "N/A",
+            explanation: "",
+          },
           qualitativeReview: {
-            codeCleanness: 0, readability: 0, efficiency: 0, overallScore: 0,
-            suggestions: [], alternativeAlgorithms: [],
+            codeCleanness: 0,
+            readability: 0,
+            efficiency: 0,
+            overallScore: 0,
+            suggestions: [],
+            alternativeAlgorithms: [],
           },
           failureAnalysis,
         };
@@ -386,30 +394,24 @@ export const onUserBenchmarkCompleted = inngest.createFunction(
       return { status: "test_failed", evaluationId };
     }
 
-    // Step 3: AI分析
-    const analysis = await step.run("ai-analysis", async () => {
+    // Step 3: AI分析（計算量のみ - 定性評価は最終レビュー時に生成）
+    await step.run("ai-analysis", async () => {
       await prisma.leetCodeEvaluation.update({
         where: { id: evaluationId },
         data: { status: "ANALYZING" },
       });
 
-      const [complexity, qualitative] = await Promise.all([
-        analyzeComplexity(evaluation.userCode, language),
-        generateQualitativeReview(evaluation.userCode, language, undefined, {
-          averageTimeMs: benchmarkResult.averageTimeMs,
-          allCorrect: benchmarkResult.allCorrect,
-        }),
-      ]);
+      const complexity = await analyzeComplexity(evaluation.userCode, language);
 
       await prisma.leetCodeEvaluation.update({
         where: { id: evaluationId },
         data: {
           timeComplexity: complexity.timeComplexity,
           spaceComplexity: complexity.spaceComplexity,
+          // ユーザーベンチマーク結果も保存
+          userBenchmark: JSON.parse(JSON.stringify(benchmarkResult)),
         },
       });
-
-      return { complexity, qualitative };
     });
 
     // Step 4: 最適解生成
@@ -428,10 +430,16 @@ export const onUserBenchmarkCompleted = inngest.createFunction(
         10
       );
 
+      // 最適解をDBに保存（ベンチマークなし）
+      const solutionsForDb = solutions.map((sol) => ({
+        ...sol,
+        benchmark: null,
+      }));
+
       await prisma.leetCodeEvaluation.update({
         where: { id: evaluationId },
         data: {
-          optimalSolutions: JSON.parse(JSON.stringify(solutions)),
+          optimalSolutions: JSON.parse(JSON.stringify(solutionsForDb)),
           status: "BENCHMARKING_OPTIMAL",
         },
       });
@@ -439,49 +447,121 @@ export const onUserBenchmarkCompleted = inngest.createFunction(
       return solutions;
     });
 
-    // Step 5: 最適解のベンチマーク（簡略化版 - 仮の結果を使用）
-    const benchmarkResults = await step.run("benchmark-optimal", async () => {
-      const optimalWithBenchmarks: OptimalSolutionWithBenchmark[] = optimalSolutions.map(
-        (sol) => ({
-          ...sol,
-          benchmark: {
-            totalRuns: 20,
-            successfulRuns: 20,
-            averageTimeMs: benchmarkResult.averageTimeMs * (0.3 + Math.random() * 0.4),
-            minTimeMs: benchmarkResult.minTimeMs * 0.4,
-            maxTimeMs: benchmarkResult.maxTimeMs * 0.6,
-            stdDevMs: benchmarkResult.stdDevMs * 0.5,
-            allCorrect: true,
-            results: [],
-          },
-        })
-      );
-
-      // 最良の解を選出
-      const bestIndex = optimalWithBenchmarks.reduce(
-        (best, sol, index) =>
-          sol.benchmark.averageTimeMs < optimalWithBenchmarks[best].benchmark.averageTimeMs
-            ? index
-            : best,
-        0
-      );
-
-      await prisma.leetCodeEvaluation.update({
-        where: { id: evaluationId },
-        data: {
-          optimalSolutions: JSON.parse(JSON.stringify(optimalWithBenchmarks)),
-          bestSolutionIndex: bestIndex,
-          status: "COMPLETED",
-        },
+    // Step 5: 各最適解のベンチマークをトリガー
+    await step.run("trigger-optimal-benchmarks", async () => {
+      const runner = new CodeRunner(process.env.GITHUB_TOKEN || "", {
+        owner,
+        repo,
+        callbackBaseUrl: process.env.NEXT_PUBLIC_APP_URL || "",
       });
 
-      return { optimalWithBenchmarks, bestIndex };
+      // 各最適解に対してベンチマークをトリガー
+      for (const solution of optimalSolutions) {
+        try {
+          await runner.triggerBenchmark({
+            evaluationId,
+            language,
+            code: solution.code,
+            testCases: evaluation.testCases as unknown as TestCase[],
+            solutionIndex: solution.index,
+          });
+
+          console.log(
+            `[LeetCode] Triggered benchmark for optimal solution ${solution.index}`
+          );
+        } catch (error) {
+          console.error(
+            `[LeetCode] Failed to trigger benchmark for solution ${solution.index}:`,
+            error
+          );
+        }
+      }
     });
 
-    // Step 6: レビュー投稿
+    return {
+      status: "waiting_for_optimal_benchmarks",
+      evaluationId,
+      optimalCount: optimalSolutions.length,
+    };
+  }
+);
+
+/**
+ * 全ベンチマーク完了時の処理（最適解すべてのベンチマークが完了）
+ */
+export const onAllBenchmarksCompleted = inngest.createFunction(
+  {
+    id: "leetcode-all-benchmarks-completed",
+    retries: 2,
+  },
+  { event: "leetcode/all-benchmarks.completed" },
+  async ({ event, step }) => {
+    const { evaluationId, owner, repo, prNumber, bestSolutionIndex } =
+      event.data;
+
+    // Step 1: 評価データを取得
+    const evaluation = await step.run("get-evaluation", async () => {
+      return prisma.leetCodeEvaluation.findUnique({
+        where: { id: evaluationId },
+        include: {
+          pullRequest: {
+            include: { repository: true },
+          },
+        },
+      });
+    });
+
+    if (!evaluation) {
+      throw new Error(`Evaluation not found: ${evaluationId}`);
+    }
+
+    // Step 2: レビューを投稿
     await step.run("post-review", async () => {
-      const { optimalWithBenchmarks, bestIndex } = benchmarkResults;
-      const bestSolution = optimalWithBenchmarks[bestIndex];
+      const language = PRISMA_TO_LANG[evaluation.language];
+
+      // ユーザーベンチマーク
+      const userBenchmark = normalizeBenchmarkResult(evaluation.userBenchmark);
+
+      // 最適解（ベンチマーク付き）
+      const optimalSolutions =
+        (evaluation.optimalSolutions as unknown as OptimalSolutionWithBenchmark[]) ||
+        [];
+
+      // 最良の解を選出
+      const correctSolutions = optimalSolutions.filter(
+        (sol) => sol.benchmark?.allCorrect
+      );
+      let bestSolution: OptimalSolutionWithBenchmark | undefined;
+
+      if (correctSolutions.length > 0) {
+        bestSolution = correctSolutions.reduce((best, sol) =>
+          (sol.benchmark?.averageTimeMs || Infinity) <
+          (best.benchmark?.averageTimeMs || Infinity)
+            ? sol
+            : best
+        );
+      } else if (optimalSolutions.length > 0) {
+        // 正解がない場合は最初の解を使用
+        bestSolution = optimalSolutions[0];
+      }
+
+      // AI分析結果を再取得（complexity）
+      const complexityAnalysis = {
+        timeComplexity: evaluation.timeComplexity || "Unknown",
+        spaceComplexity: evaluation.spaceComplexity || "Unknown",
+        explanation: "",
+      };
+
+      // 定性評価を再生成
+      const qualitativeReview = await generateQualitativeReview(
+        evaluation.userCode,
+        language,
+        undefined,
+        {
+          averageTimeMs: userBenchmark.averageTimeMs,
+          allCorrect: userBenchmark.allCorrect,
+        }
+      );
 
       const reviewResult: LeetCodeEvaluationResult = {
         submission: {
@@ -492,10 +572,10 @@ export const onUserBenchmarkCompleted = inngest.createFunction(
           userCode: evaluation.userCode,
           filePath: evaluation.filePath,
         },
-        userBenchmark: benchmarkResult,
-        complexityAnalysis: analysis.complexity,
-        qualitativeReview: analysis.qualitative,
-        optimalSolutions: optimalWithBenchmarks,
+        userBenchmark,
+        complexityAnalysis,
+        qualitativeReview,
+        optimalSolutions,
         bestSolution,
       };
 
@@ -508,25 +588,17 @@ export const onUserBenchmarkCompleted = inngest.createFunction(
         prNumber,
         reviewComment
       );
+
+      await prisma.leetCodeEvaluation.update({
+        where: { id: evaluationId },
+        data: {
+          bestSolutionIndex: bestSolution?.index ?? 0,
+          status: "COMPLETED",
+        },
+      });
     });
 
-    return { status: "completed", evaluationId };
-  }
-);
-
-/**
- * 全ベンチマーク完了時の処理
- */
-export const onAllBenchmarksCompleted = inngest.createFunction(
-  {
-    id: "leetcode-all-benchmarks-completed",
-    retries: 1,
-  },
-  { event: "leetcode/all-benchmarks.completed" },
-  async ({ event }) => {
-    const { evaluationId, bestSolutionIndex } = event.data;
-
-    console.log("[LeetCode] All benchmarks completed", {
+    console.log("[LeetCode] All benchmarks completed and review posted", {
       evaluationId,
       bestSolutionIndex,
     });

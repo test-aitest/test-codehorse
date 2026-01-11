@@ -37,6 +37,11 @@ on:
         description: 'Callback URL to send results'
         required: true
         type: string
+      solution_index:
+        description: 'Solution index (for optimal solution benchmarks)'
+        required: false
+        default: ''
+        type: string
 
 env:
   DOCKER_IMAGE: leetcode-runner
@@ -132,15 +137,28 @@ jobs:
             RESULT='{"success": false, "error": "Benchmark execution failed"}'
           fi
 
-          # Send result to callback URL
-          curl -X POST "${{ inputs.callback_url }}" \
-            -H "Content-Type: application/json" \
-            -H "X-Evaluation-ID: ${{ inputs.evaluation_id }}" \
-            -d "{
+          # Build callback payload
+          SOLUTION_INDEX="${{ inputs.solution_index }}"
+          if [ -n "$SOLUTION_INDEX" ]; then
+            PAYLOAD="{
+              \"evaluationId\": \"${{ inputs.evaluation_id }}\",
+              \"language\": \"${{ inputs.language }}\",
+              \"solutionIndex\": $SOLUTION_INDEX,
+              \"result\": $RESULT
+            }"
+          else
+            PAYLOAD="{
               \"evaluationId\": \"${{ inputs.evaluation_id }}\",
               \"language\": \"${{ inputs.language }}\",
               \"result\": $RESULT
             }"
+          fi
+
+          # Send result to callback URL
+          curl -X POST "${{ inputs.callback_url }}" \
+            -H "Content-Type: application/json" \
+            -H "X-Evaluation-ID: ${{ inputs.evaluation_id }}" \
+            -d "$PAYLOAD"
 
       - name: Upload benchmark result
         uses: actions/upload-artifact@v4
