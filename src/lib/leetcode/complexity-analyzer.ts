@@ -8,23 +8,25 @@ import { geminiFlash } from "@/lib/ai/client";
 import type { ComplexityAnalysis, SupportedLanguage } from "./types";
 
 /**
- * 計算量分析のシステムプロンプト
+ * Complexity analysis system prompt
  */
-const COMPLEXITY_SYSTEM_PROMPT = `あなたはアルゴリズム分析の専門家です。
-与えられたコードの時間計算量と空間計算量を分析してください。
+const COMPLEXITY_SYSTEM_PROMPT = `You are an expert in algorithm analysis.
+Analyze the time complexity and space complexity of the given code.
 
-分析の際は以下の点に注意してください：
-- ループのネスト構造
-- 再帰呼び出しのパターン
-- データ構造の操作（配列アクセス、ハッシュマップ操作など）
-- 組み込み関数の計算量
-- 最悪ケースの計算量を報告
+When analyzing, pay attention to the following:
+- Loop nesting structure
+- Recursion patterns
+- Data structure operations (array access, hashmap operations, etc.)
+- Built-in function complexity
+- Report worst-case complexity
 
-回答は必ず以下のJSON形式で出力してください：
+Always respond in English.
+
+Always output in the following JSON format:
 {
   "timeComplexity": "O(n)",
   "spaceComplexity": "O(1)",
-  "explanation": "計算量の説明"
+  "explanation": "Explanation of the complexity in English"
 }`;
 
 /**
@@ -51,7 +53,7 @@ export async function analyzeComplexity(
     return {
       timeComplexity: "Unknown",
       spaceComplexity: "Unknown",
-      explanation: "計算量の分析中にエラーが発生しました。",
+      explanation: "An error occurred during complexity analysis.",
     };
   }
 }
@@ -64,13 +66,13 @@ function buildComplexityPrompt(
   language: SupportedLanguage,
   problemContext?: string
 ): string {
-  let prompt = `以下の${getLanguageName(language)}コードの計算量を分析してください。\n\n`;
+  let prompt = `Please analyze the complexity of the following ${getLanguageName(language)} code.\n\n`;
 
   if (problemContext) {
-    prompt += `## 問題の背景\n${problemContext}\n\n`;
+    prompt += `## Problem Context\n${problemContext}\n\n`;
   }
 
-  prompt += `## コード\n\`\`\`${language}\n${code}\n\`\`\``;
+  prompt += `## Code\n\`\`\`${language}\n${code}\n\`\`\``;
 
   return prompt;
 }
@@ -164,12 +166,12 @@ export function compareComplexity(a: string, b: string): number {
 }
 
 /**
- * 計算量をフォーマット
+ * Format complexity summary
  */
 export function formatComplexitySummary(analysis: ComplexityAnalysis): string {
-  return `**計算量分析**
-- 時間計算量: ${analysis.timeComplexity}
-- 空間計算量: ${analysis.spaceComplexity}
+  return `**Complexity Analysis**
+- Time Complexity: ${analysis.timeComplexity}
+- Space Complexity: ${analysis.spaceComplexity}
 
 ${analysis.explanation}`;
 }

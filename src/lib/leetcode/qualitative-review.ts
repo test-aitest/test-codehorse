@@ -8,35 +8,37 @@ import { geminiFlash } from "@/lib/ai/client";
 import type { QualitativeReview, AlgorithmSuggestion, SupportedLanguage } from "./types";
 
 /**
- * 定性評価のシステムプロンプト
+ * Qualitative review system prompt
  */
-const QUALITATIVE_SYSTEM_PROMPT = `あなたはコードレビューの専門家です。
-与えられたLeetCodeソリューションの品質を評価してください。
+const QUALITATIVE_SYSTEM_PROMPT = `You are an expert code reviewer.
+Evaluate the quality of the given LeetCode solution.
 
-評価基準：
-1. コードの清潔さ (codeCleanness): 命名規則、フォーマット、構造
-2. 可読性 (readability): 理解しやすさ、コメントの適切さ
-3. 効率性 (efficiency): アルゴリズムの効率、無駄な計算の有無
-4. 全体スコア (overallScore): 総合評価
+Evaluation criteria:
+1. Code Cleanness (codeCleanness): naming conventions, formatting, structure
+2. Readability (readability): ease of understanding, appropriate comments
+3. Efficiency (efficiency): algorithm efficiency, absence of unnecessary computation
+4. Overall Score (overallScore): overall evaluation
 
-また、以下も提供してください：
-- 改善提案 (suggestions): 具体的な改善点
-- 代替アルゴリズム (alternativeAlgorithms): より効率的なアプローチ
+Also provide:
+- Suggestions (suggestions): specific improvement points
+- Alternative Algorithms (alternativeAlgorithms): more efficient approaches
 
-回答は必ず以下のJSON形式で出力してください：
+Always respond in English.
+
+Always output in the following JSON format:
 {
   "codeCleanness": 8,
   "readability": 7,
   "efficiency": 6,
   "overallScore": 7,
-  "suggestions": ["提案1", "提案2"],
+  "suggestions": ["Suggestion 1", "Suggestion 2"],
   "alternativeAlgorithms": [
     {
-      "name": "アルゴリズム名",
-      "description": "説明",
+      "name": "Algorithm name",
+      "description": "Description",
       "expectedTimeComplexity": "O(n)",
       "expectedSpaceComplexity": "O(1)",
-      "applicability": "適用可能な条件"
+      "applicability": "Applicable conditions"
     }
   ]
 }`;
@@ -68,7 +70,7 @@ export async function generateQualitativeReview(
       readability: 5,
       efficiency: 5,
       overallScore: 5,
-      suggestions: ["評価中にエラーが発生しました。"],
+      suggestions: ["An error occurred during evaluation."],
       alternativeAlgorithms: [],
     };
   }
@@ -83,19 +85,19 @@ function buildQualitativePrompt(
   problemDescription?: string,
   benchmarkResult?: { averageTimeMs: number; allCorrect: boolean }
 ): string {
-  let prompt = `以下の${getLanguageName(language)}コードを評価してください。\n\n`;
+  let prompt = `Please evaluate the following ${getLanguageName(language)} code.\n\n`;
 
   if (problemDescription) {
-    prompt += `## 問題の説明\n${problemDescription}\n\n`;
+    prompt += `## Problem Description\n${problemDescription}\n\n`;
   }
 
   if (benchmarkResult) {
-    prompt += `## ベンチマーク結果\n`;
-    prompt += `- 平均実行時間: ${benchmarkResult.averageTimeMs.toFixed(2)}ms\n`;
-    prompt += `- テスト結果: ${benchmarkResult.allCorrect ? "全て正解" : "一部失敗"}\n\n`;
+    prompt += `## Benchmark Results\n`;
+    prompt += `- Average Execution Time: ${benchmarkResult.averageTimeMs.toFixed(2)}ms\n`;
+    prompt += `- Test Results: ${benchmarkResult.allCorrect ? "All Passed" : "Some Failed"}\n\n`;
   }
 
-  prompt += `## コード\n\`\`\`${language}\n${code}\n\`\`\``;
+  prompt += `## Code\n\`\`\`${language}\n${code}\n\`\`\``;
 
   return prompt;
 }
@@ -204,19 +206,19 @@ function getLanguageName(language: SupportedLanguage): string {
 }
 
 /**
- * 評価結果をフォーマット
+ * Format review results
  */
 export function formatQualitativeReview(review: QualitativeReview): string {
-  let output = `## コード品質評価\n\n`;
+  let output = `## Code Quality Evaluation\n\n`;
 
-  output += `| 項目 | スコア |\n|------|-------|\n`;
-  output += `| コードの清潔さ | ${formatScore(review.codeCleanness)} |\n`;
-  output += `| 可読性 | ${formatScore(review.readability)} |\n`;
-  output += `| 効率性 | ${formatScore(review.efficiency)} |\n`;
-  output += `| **総合スコア** | **${formatScore(review.overallScore)}** |\n\n`;
+  output += `| Metric | Score |\n|------|-------|\n`;
+  output += `| Code Cleanness | ${formatScore(review.codeCleanness)} |\n`;
+  output += `| Readability | ${formatScore(review.readability)} |\n`;
+  output += `| Efficiency | ${formatScore(review.efficiency)} |\n`;
+  output += `| **Overall Score** | **${formatScore(review.overallScore)}** |\n\n`;
 
   if (review.suggestions.length > 0) {
-    output += `### 改善提案\n`;
+    output += `### Improvement Suggestions\n`;
     review.suggestions.forEach((s, i) => {
       output += `${i + 1}. ${s}\n`;
     });
@@ -224,14 +226,14 @@ export function formatQualitativeReview(review: QualitativeReview): string {
   }
 
   if (review.alternativeAlgorithms.length > 0) {
-    output += `### 代替アルゴリズム\n`;
+    output += `### Alternative Algorithms\n`;
     review.alternativeAlgorithms.forEach((algo) => {
       output += `\n#### ${algo.name}\n`;
       output += `${algo.description}\n`;
-      output += `- 時間計算量: ${algo.expectedTimeComplexity}\n`;
-      output += `- 空間計算量: ${algo.expectedSpaceComplexity}\n`;
+      output += `- Time Complexity: ${algo.expectedTimeComplexity}\n`;
+      output += `- Space Complexity: ${algo.expectedSpaceComplexity}\n`;
       if (algo.applicability) {
-        output += `- 適用条件: ${algo.applicability}\n`;
+        output += `- Applicability: ${algo.applicability}\n`;
       }
     });
   }

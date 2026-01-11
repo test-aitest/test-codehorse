@@ -8,29 +8,31 @@ import { geminiFlash } from "@/lib/ai/client";
 import type { FailureAnalysis, SupportedLanguage } from "./types";
 
 /**
- * 失敗分析のシステムプロンプト
+ * Failure analysis system prompt
  */
-const FAILURE_ANALYSIS_SYSTEM_PROMPT = `あなたはデバッグの専門家です。
-与えられたLeetCodeソリューションのテスト失敗を分析してください。
+const FAILURE_ANALYSIS_SYSTEM_PROMPT = `You are a debugging expert.
+Analyze the test failure of the given LeetCode solution.
 
-分析に含めるべき内容：
-1. 失敗の根本原因
-2. なぜ期待値と実際の出力が異なるのか
-3. 具体的な修正提案
+Analysis should include:
+1. Root cause of the failure
+2. Why the expected and actual outputs differ
+3. Specific fix suggestions
 
-回答は必ず以下のJSON形式で出力してください：
+Always output in the following JSON format:
 {
-  "analysis": "失敗の詳細な分析",
-  "rootCause": "根本原因の要約",
-  "suggestedFix": "修正提案のコードまたは説明"
+  "analysis": "Detailed analysis of the failure",
+  "rootCause": "Summary of the root cause",
+  "suggestedFix": "Code or explanation for the fix"
 }
 
-分析の際は以下の点に注意してください：
-- エッジケースの見落とし
-- オフバイワンエラー
-- 型変換の問題
-- アルゴリズムの論理エラー
-- データ構造の誤用`;
+Always respond in English.
+
+When analyzing, pay attention to:
+- Overlooked edge cases
+- Off-by-one errors
+- Type conversion issues
+- Algorithm logic errors
+- Data structure misuse`;
 
 /**
  * 失敗原因を分析
@@ -68,9 +70,9 @@ export async function analyzeFailure(
     console.error("[FailureAnalyzer] Error analyzing failure:", error);
     return {
       failedTestCases,
-      analysis: "失敗分析中にエラーが発生しました。",
-      rootCause: "分析不能",
-      suggestedFix: "コードを確認してください。",
+      analysis: "An error occurred during failure analysis.",
+      rootCause: "Unable to analyze",
+      suggestedFix: "Please review your code.",
     };
   }
 }
@@ -89,23 +91,23 @@ function buildFailurePrompt(
   }>,
   problemDescription?: string
 ): string {
-  let prompt = `以下の${getLanguageName(language)}コードのテスト失敗を分析してください。\n\n`;
+  let prompt = `Please analyze the test failure of the following ${getLanguageName(language)} code.\n\n`;
 
   if (problemDescription) {
-    prompt += `## 問題の説明\n${problemDescription}\n\n`;
+    prompt += `## Problem Description\n${problemDescription}\n\n`;
   }
 
-  prompt += `## コード\n\`\`\`${language}\n${code}\n\`\`\`\n\n`;
+  prompt += `## Code\n\`\`\`${language}\n${code}\n\`\`\`\n\n`;
 
-  prompt += `## 失敗したテストケース\n`;
+  prompt += `## Failed Test Cases\n`;
   failedTestCases.forEach((tc) => {
-    prompt += `### ケース ${tc.index + 1}\n`;
-    prompt += `- **入力**: \`${tc.input}\`\n`;
-    prompt += `- **期待出力**: \`${tc.expected}\`\n`;
-    prompt += `- **実際の出力**: \`${tc.actual}\`\n\n`;
+    prompt += `### Case ${tc.index + 1}\n`;
+    prompt += `- **Input**: \`${tc.input}\`\n`;
+    prompt += `- **Expected Output**: \`${tc.expected}\`\n`;
+    prompt += `- **Actual Output**: \`${tc.actual}\`\n\n`;
   });
 
-  prompt += `\n上記の失敗を分析し、根本原因と修正提案を提供してください。`;
+  prompt += `\nPlease analyze the above failures and provide root cause and fix suggestions.`;
 
   return prompt;
 }
@@ -136,11 +138,11 @@ function parseFailureResponse(text: string): {
       suggestedFix: String(parsed.suggestedFix || ""),
     };
   } catch {
-    // フォールバック：テキストをそのまま使用
+    // Fallback: use raw text
     return {
       analysis: text.slice(0, 1000),
-      rootCause: "詳細は上記分析を参照",
-      suggestedFix: "上記分析に基づいてコードを修正してください",
+      rootCause: "See detailed analysis above",
+      suggestedFix: "Please fix your code based on the analysis above",
     };
   }
 }
@@ -160,28 +162,28 @@ function getLanguageName(language: SupportedLanguage): string {
 }
 
 /**
- * 失敗分析をフォーマット
+ * Format failure analysis
  */
 export function formatFailureAnalysis(analysis: FailureAnalysis): string {
-  let output = `## テスト失敗分析\n\n`;
+  let output = `## Test Failure Analysis\n\n`;
 
-  output += `### 失敗したテストケース\n\n`;
+  output += `### Failed Test Cases\n\n`;
 
   analysis.failedTestCases.forEach((tc) => {
-    output += `#### ケース ${tc.index + 1}\n`;
-    output += `| 項目 | 値 |\n|------|----|\n`;
-    output += `| 入力 | \`${tc.input}\` |\n`;
-    output += `| 期待出力 | \`${tc.expected}\` |\n`;
-    output += `| 実際の出力 | \`${tc.actual}\` |\n\n`;
+    output += `#### Case ${tc.index + 1}\n`;
+    output += `| Item | Value |\n|------|----|\n`;
+    output += `| Input | \`${tc.input}\` |\n`;
+    output += `| Expected | \`${tc.expected}\` |\n`;
+    output += `| Actual | \`${tc.actual}\` |\n\n`;
   });
 
-  output += `### 根本原因\n\n`;
+  output += `### Root Cause\n\n`;
   output += `${analysis.rootCause}\n\n`;
 
-  output += `### 詳細分析\n\n`;
+  output += `### Detailed Analysis\n\n`;
   output += `${analysis.analysis}\n\n`;
 
-  output += `### 修正提案\n\n`;
+  output += `### Suggested Fix\n\n`;
   output += `${analysis.suggestedFix}\n`;
 
   return output;

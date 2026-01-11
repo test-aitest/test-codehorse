@@ -8,36 +8,38 @@ import { geminiFlash } from "@/lib/ai/client";
 import type { OptimalSolution, SupportedLanguage, TestCase } from "./types";
 
 /**
- * 最適解生成のシステムプロンプト
+ * Optimal solution generation system prompt
  */
-const OPTIMAL_GENERATOR_SYSTEM_PROMPT = `あなたはアルゴリズムの専門家です。
-与えられたLeetCode問題に対して、複数の最適な解法を生成してください。
+const OPTIMAL_GENERATOR_SYSTEM_PROMPT = `You are an algorithm expert.
+Generate multiple optimal solutions for the given LeetCode problem.
 
-各解法は以下を含めてください：
-1. アルゴリズム名（例：Two Pointer, Binary Search, Dynamic Programming）
-2. 完全な実装コード
-3. 予想される時間計算量
-4. 予想される空間計算量
-5. なぜこのアプローチが効果的かの説明
+Each solution should include:
+1. Algorithm name (e.g., Two Pointer, Binary Search, Dynamic Programming)
+2. Complete implementation code
+3. Expected time complexity
+4. Expected space complexity
+5. Explanation of why this approach is effective
 
-回答は必ず以下のJSON形式で出力してください：
+Always output in the following JSON format:
 {
   "solutions": [
     {
-      "algorithmName": "アルゴリズム名",
-      "code": "完全なコード",
+      "algorithmName": "Algorithm name",
+      "code": "Complete code",
       "expectedTimeComplexity": "O(n)",
       "expectedSpaceComplexity": "O(1)",
-      "explanation": "説明"
+      "explanation": "Explanation"
     }
   ]
 }
 
-重要な注意点：
-- コードは与えられた言語で書いてください
-- コードはそのまま実行可能な完全なものにしてください
-- LeetCodeのSolutionクラス形式を使用してください
-- エッジケースを適切に処理してください`;
+Always respond in English.
+
+Important notes:
+- Write code in the given language
+- Code should be complete and executable as-is
+- Use LeetCode's Solution class format
+- Handle edge cases appropriately`;
 
 /**
  * 最適解を生成
@@ -91,31 +93,31 @@ function buildOptimalPrompt(
   testCases: TestCase[],
   count: number
 ): string {
-  let prompt = `以下のLeetCode問題に対して、${count}種類の最適な解法を${getLanguageName(language)}で生成してください。\n\n`;
+  let prompt = `Generate ${count} optimal solutions in ${getLanguageName(language)} for the following LeetCode problem.\n\n`;
 
-  prompt += `## 問題URL\n${problemUrl}\n\n`;
+  prompt += `## Problem URL\n${problemUrl}\n\n`;
 
   if (problemDescription) {
-    prompt += `## 問題の説明\n${problemDescription}\n\n`;
+    prompt += `## Problem Description\n${problemDescription}\n\n`;
   }
 
-  prompt += `## ユーザーの現在の解法\n\`\`\`${language}\n${userCode}\n\`\`\`\n\n`;
+  prompt += `## User's Current Solution\n\`\`\`${language}\n${userCode}\n\`\`\`\n\n`;
 
   if (testCases.length > 0) {
-    prompt += `## テストケース\n`;
+    prompt += `## Test Cases\n`;
     testCases.forEach((tc, i) => {
-      prompt += `### ケース ${i + 1}\n`;
-      prompt += `- 入力: ${tc.input}\n`;
-      prompt += `- 期待出力: ${tc.expectedOutput}\n`;
+      prompt += `### Case ${i + 1}\n`;
+      prompt += `- Input: ${tc.input}\n`;
+      prompt += `- Expected Output: ${tc.expectedOutput}\n`;
     });
     prompt += "\n";
   }
 
-  prompt += `## 要件\n`;
-  prompt += `- ${count}種類の異なるアプローチを提案してください\n`;
-  prompt += `- 各解法は完全に動作するコードを含めてください\n`;
-  prompt += `- 可能な限り効率的なアルゴリズムを優先してください\n`;
-  prompt += `- 多様なアプローチを含めてください（例：ブルートフォース、最適化版、異なるデータ構造を使用したもの）\n`;
+  prompt += `## Requirements\n`;
+  prompt += `- Propose ${count} different approaches\n`;
+  prompt += `- Each solution should include complete working code\n`;
+  prompt += `- Prioritize the most efficient algorithms\n`;
+  prompt += `- Include diverse approaches (e.g., brute force, optimized version, using different data structures)\n`;
 
   return prompt;
 }
@@ -229,25 +231,25 @@ function getLanguageName(language: SupportedLanguage): string {
 }
 
 /**
- * 複数の最適解をフォーマット
+ * Format multiple optimal solutions
  */
 export function formatOptimalSolutions(
   solutions: OptimalSolution[],
   bestIndex?: number
 ): string {
   if (solutions.length === 0) {
-    return "最適解の生成に失敗しました。";
+    return "Failed to generate optimal solutions.";
   }
 
-  let output = "## 最適解候補\n\n";
+  let output = "## Optimal Solution Candidates\n\n";
 
   solutions.forEach((sol, i) => {
     const isBest = bestIndex === sol.index;
     const badge = isBest ? " 🏆 **Best**" : "";
 
     output += `### ${i + 1}. ${sol.algorithmName}${badge}\n\n`;
-    output += `- 時間計算量: ${sol.expectedTimeComplexity}\n`;
-    output += `- 空間計算量: ${sol.expectedSpaceComplexity}\n\n`;
+    output += `- Time Complexity: ${sol.expectedTimeComplexity}\n`;
+    output += `- Space Complexity: ${sol.expectedSpaceComplexity}\n\n`;
     output += `${sol.explanation}\n\n`;
 
     if (isBest) {
