@@ -148,6 +148,7 @@ model PullRequest {
   repository           Repository            @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   reviews              Review[]
   conversationHistory  ConversationHistory[]
+  leetCodeEvaluation   LeetCodeEvaluation?   // LeetCode評価（1PR = 1評価）
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -807,4 +808,77 @@ enum ResolutionType {
   FALSE_POSITIVE  // 誤検出だった
   WONT_FIX        // 修正しない（意図的）
   DUPLICATE       // 重複した指摘
+}
+
+// ========================================
+// LeetCode最適解提案 (LeetCode Optimizer)
+// ========================================
+
+// LeetCode評価結果
+model LeetCodeEvaluation {
+  id              String                 @id @default(cuid())
+  pullRequestId   String                 @unique
+  pullRequest     PullRequest            @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+
+  // 問題情報
+  problemUrl      String                 // "https://leetcode.com/problems/two-sum/"
+  problemId       String                 // "two-sum"
+  language        LeetCodeLanguage
+
+  // ユーザーコード
+  userCode        String                 @db.Text
+  filePath        String                 // コミットされたファイルパス
+
+  // テストケース
+  testCases       Json                   // TestCase[] - [{input, expectedOutput}]
+
+  // === 1段目: ユーザーコード評価結果 ===
+  userBenchmark       Json?              // BenchmarkResult
+  timeComplexity      String?            // "O(n)", "O(n log n)", etc.
+  spaceComplexity     String?            // "O(1)", "O(n)", etc.
+  codeQuality         Float?             // 1-10
+  qualitativeReview   Json?              // QualitativeReview
+
+  // === 失敗分析（テスト失敗時のみ） ===
+  failureAnalysis     Json?              // FailureAnalysis
+
+  // === 2段目: 最適解（テスト成功時のみ） ===
+  optimalSolutions    Json?              // OptimalSolution[]
+  optimalBenchmarks   Json?              // BenchmarkResult[] for each solution
+  bestSolutionIndex   Int?               // 最速解のインデックス
+
+  // ステータス管理
+  status              LeetCodeEvalStatus @default(PENDING)
+  errorMessage        String?            @db.Text
+
+  // タイムスタンプ
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  completedAt     DateTime?
+
+  @@index([pullRequestId])
+  @@index([problemId])
+  @@index([status])
+}
+
+// LeetCode対応言語
+enum LeetCodeLanguage {
+  PYTHON
+  JAVASCRIPT
+  TYPESCRIPT
+  JAVA
+  GO
+}
+
+// LeetCode評価ステータス
+enum LeetCodeEvalStatus {
+  PENDING                // 待機中
+  SECURITY_SCANNING      // セキュリティチェック中
+  BENCHMARKING_USER      // ユーザーコード実行中
+  ANALYZING              // AI分析中（計算量、定性評価）
+  GENERATING_OPTIMAL     // 最適解生成中
+  BENCHMARKING_OPTIMAL   // 最適解実行中
+  COMPLETED              // 完了
+  FAILED                 // 失敗
+  TEST_FAILED            // ユーザーコードがテスト失敗
 }
