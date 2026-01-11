@@ -2,7 +2,7 @@
 # LeetCode Code Runner
 # Docker内でコードを実行してベンチマークを取る
 
-set -e
+set -ex
 
 # 引数
 LANGUAGE="$1"
