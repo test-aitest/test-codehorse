@@ -77,18 +77,20 @@ jobs:
           echo "=== Test cases ==="
           cat workspace/test_cases.json
 
+      - name: Determine file extension
+        id: ext
+        run: |
+          case "${{ inputs.language }}" in
+            python) echo "ext=py" >> $GITHUB_OUTPUT ;;
+            javascript) echo "ext=js" >> $GITHUB_OUTPUT ;;
+            typescript) echo "ext=ts" >> $GITHUB_OUTPUT ;;
+            java) echo "ext=java" >> $GITHUB_OUTPUT ;;
+            go) echo "ext=go" >> $GITHUB_OUTPUT ;;
+          esac
+
       - name: Run benchmark in Docker
         id: benchmark
         run: |
-          # Determine file extension
-          case "${{ inputs.language }}" in
-            python) EXT="py" ;;
-            javascript) EXT="js" ;;
-            typescript) EXT="ts" ;;
-            java) EXT="java" ;;
-            go) EXT="go" ;;
-          esac
-
           # Run Docker container with security constraints
           docker run \
             --rm \
@@ -100,7 +102,7 @@ jobs:
             -v "$(pwd)/workspace:/workspace:ro" \
             -v "$(pwd)/.github/leetcode-runner/helpers:/leetcode/helpers:ro" \
             -e "LEETCODE_LANG=${{ inputs.language }}" \
-            -e "LEETCODE_EXT=${EXT}" \
+            -e "LEETCODE_EXT=${{ steps.ext.outputs.ext }}" \
             -e "LEETCODE_RUN_COUNT=${{ inputs.run_count }}" \
             -e "LEETCODE_TIMEOUT=${{ env.TIMEOUT_SECONDS }}" \
             ${{ env.DOCKER_IMAGE }} \
