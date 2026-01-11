@@ -20,6 +20,7 @@ on:
           - typescript
           - java
           - go
+          - swift
       code:
         description: 'Base64 encoded user code'
         required: true
