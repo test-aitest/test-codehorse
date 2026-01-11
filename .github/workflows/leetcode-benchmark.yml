@@ -103,7 +103,19 @@ jobs:
             -v "$(pwd)/.github/leetcode-runner/helpers:/leetcode/helpers:ro" \
             --entrypoint /bin/bash \
             ${{ env.DOCKER_IMAGE }} \
-            -c "cp -r /workspace/* /tmp/ && /leetcode/runner.sh '${{ inputs.language }}' '/tmp/solution.${{ steps.ext.outputs.ext }}' '/tmp/test_cases.json' '/tmp/result.json' '${{ inputs.run_count }}' '${{ env.TIMEOUT_SECONDS }}' && cat /tmp/result.json" > benchmark_result.json 2>&1 || true
+            -c "
+              echo 'DEBUG: Starting container'
+              echo 'DEBUG: whoami:' && whoami
+              echo 'DEBUG: pwd:' && pwd
+              echo 'DEBUG: ls /workspace:' && ls -la /workspace/ || echo 'Cannot list /workspace'
+              echo 'DEBUG: Copying files...'
+              cp -r /workspace/* /tmp/ || echo 'Copy failed'
+              echo 'DEBUG: ls /tmp:' && ls -la /tmp/
+              echo 'DEBUG: Running runner.sh...'
+              /leetcode/runner.sh '${{ inputs.language }}' '/tmp/solution.${{ steps.ext.outputs.ext }}' '/tmp/test_cases.json' '/tmp/result.json' '${{ inputs.run_count }}' '${{ env.TIMEOUT_SECONDS }}' || echo 'Runner failed with exit code:' \$?
+              echo 'DEBUG: Result file:'
+              cat /tmp/result.json || echo 'No result file'
+            " > benchmark_result.json 2>&1 || true
 
           echo "=== Benchmark Result ==="
           cat benchmark_result.json
