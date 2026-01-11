@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     git \
     build-essential \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 3.11
