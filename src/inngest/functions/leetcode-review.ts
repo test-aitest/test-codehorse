@@ -174,23 +174,26 @@ export const leetcodeSolutionSubmitted = inngest.createFunction(
         });
       }
 
-      // PRを取得または作成
-      let pullRequest = await prisma.pullRequest.findFirst({
-        where: { repositoryId: repository.id, number: prNumber },
-      });
-
-      if (!pullRequest) {
-        pullRequest = await prisma.pullRequest.create({
-          data: {
+      // PRを取得または作成（upsertで競合を回避）
+      const pullRequest = await prisma.pullRequest.upsert({
+        where: {
+          repositoryId_number: {
             repositoryId: repository.id,
             number: prNumber,
-            title: `LeetCode: ${leetcodeInfo.problemId || "solution"}`,
-            headSha: leetcodeInfo.headSha,
-            baseSha: "",
-            author: "",
           },
-        });
-      }
+        },
+        update: {
+          headSha: leetcodeInfo.headSha,
+        },
+        create: {
+          repositoryId: repository.id,
+          number: prNumber,
+          title: `LeetCode: ${leetcodeInfo.problemId || "solution"}`,
+          headSha: leetcodeInfo.headSha,
+          baseSha: "",
+          author: "",
+        },
+      });
 
       // LeetCode評価を作成
       const leetCodeEval = await prisma.leetCodeEvaluation.create({
