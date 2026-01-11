@@ -101,12 +101,9 @@ jobs:
             --tmpfs /tmp:rw,noexec,nosuid,size=100m \
             -v "$(pwd)/workspace:/workspace:ro" \
             -v "$(pwd)/.github/leetcode-runner/helpers:/leetcode/helpers:ro" \
-            -e "LEETCODE_LANG=${{ inputs.language }}" \
-            -e "LEETCODE_EXT=${{ steps.ext.outputs.ext }}" \
-            -e "LEETCODE_RUN_COUNT=${{ inputs.run_count }}" \
-            -e "LEETCODE_TIMEOUT=${{ env.TIMEOUT_SECONDS }}" \
+            --entrypoint /bin/bash \
             ${{ env.DOCKER_IMAGE }} \
-            /bin/bash -c "echo 'CONTAINER_START' && cp -r /workspace/* /tmp/ && ls -la /tmp/ && echo 'FILES_COPIED' && /leetcode/runner.sh '${{ inputs.language }}' '/tmp/solution.${{ steps.ext.outputs.ext }}' '/tmp/test_cases.json' '/tmp/result.json' '${{ inputs.run_count }}' '${{ env.TIMEOUT_SECONDS }}' && cat /tmp/result.json" > benchmark_result.json 2>&1 || true
+            -c "cp -r /workspace/* /tmp/ && /leetcode/runner.sh '${{ inputs.language }}' '/tmp/solution.${{ steps.ext.outputs.ext }}' '/tmp/test_cases.json' '/tmp/result.json' '${{ inputs.run_count }}' '${{ env.TIMEOUT_SECONDS }}' && cat /tmp/result.json" > benchmark_result.json 2>&1 || true
 
           echo "=== Benchmark Result ==="
           cat benchmark_result.json
