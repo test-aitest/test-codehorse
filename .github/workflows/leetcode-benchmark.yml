@@ -106,28 +106,23 @@ jobs:
             -e "LEETCODE_RUN_COUNT=${{ inputs.run_count }}" \
             -e "LEETCODE_TIMEOUT=${{ env.TIMEOUT_SECONDS }}" \
             ${{ env.DOCKER_IMAGE }} \
-            /bin/bash -c '
-              echo "=== Debug: Environment Variables ==="
-              echo "LEETCODE_LANG=$LEETCODE_LANG"
-              echo "LEETCODE_EXT=$LEETCODE_EXT"
-              echo "LEETCODE_RUN_COUNT=$LEETCODE_RUN_COUNT"
-              echo "LEETCODE_TIMEOUT=$LEETCODE_TIMEOUT"
-              echo "=== Debug: Copying files ==="
+            /bin/bash -c "
+              echo '=== Debug: Copying files ==='
               cp -r /workspace/* /tmp/
-              echo "=== Debug: Files in /tmp ==="
+              echo '=== Debug: Files in /tmp ==='
               ls -la /tmp/
-              echo "=== Debug: Running runner.sh ==="
+              echo '=== Debug: Running runner.sh ==='
               chmod +x /leetcode/runner.sh
               /leetcode/runner.sh \
-                "$LEETCODE_LANG" \
-                "/tmp/solution.$LEETCODE_EXT" \
+                '${{ inputs.language }}' \
+                '/tmp/solution.${{ steps.ext.outputs.ext }}' \
                 /tmp/test_cases.json \
                 /tmp/result.json \
-                "$LEETCODE_RUN_COUNT" \
-                "$LEETCODE_TIMEOUT"
-              echo "=== Debug: Result ==="
+                '${{ inputs.run_count }}' \
+                '${{ env.TIMEOUT_SECONDS }}'
+              echo '=== Debug: Result ==='
               cat /tmp/result.json
-            ' > benchmark_result.json 2>&1 || true
+            " > benchmark_result.json 2>&1 || true
 
           echo "=== Benchmark Result ==="
           cat benchmark_result.json
