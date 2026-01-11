@@ -108,6 +108,7 @@ jobs:
             --cpus=${{ env.CPU_LIMIT }} \
             --read-only \
             --tmpfs /tmp:rw,noexec,nosuid,size=100m \
+            --tmpfs /home/leetcode/.cache:rw,size=100m \
             -v "$(pwd)/workspace:/workspace:ro" \
             -v "$(pwd)/results:/results:rw" \
             -v "$(pwd)/.github/leetcode-runner/helpers:/leetcode/helpers:ro" \
