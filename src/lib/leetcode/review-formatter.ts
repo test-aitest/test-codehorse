@@ -265,6 +265,13 @@ function formatOtherCandidates(
     output += `- ${isJa ? "時間計算量" : "Time"}: ${sol.expectedTimeComplexity}\n`;
     output += `- ${isJa ? "空間計算量" : "Space"}: ${sol.expectedSpaceComplexity}\n`;
     output += `- ${isJa ? "平均実行時間" : "Avg Time"}: ${sol.benchmark.averageTimeMs.toFixed(2)}ms\n\n`;
+
+    // ソースコードを表示
+    output += `<details>\n<summary>${isJa ? "ソースコードを表示" : "Show Source Code"}</summary>\n\n`;
+    output += "```\n";
+    output += sol.code;
+    output += "\n```\n\n";
+    output += "</details>\n\n";
   });
 
   output += "</details>\n\n";
