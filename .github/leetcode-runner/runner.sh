@@ -65,14 +65,8 @@ if 'Solution' in dir():
     if methods:
         method = getattr(solution, methods[0])
 
-        # 入力をパース（カンマで分割して複数引数として渡す）
-        inputs = []
-        # 簡易パース: 最初の引数を取得
-        parsed = parse_input(input_str)
-        if isinstance(parsed, list):
-            inputs = [parsed]
-        else:
-            inputs = [parsed]
+        # 入力をパース（LeetCode形式: "nums = [1,2], target = 3"）
+        inputs = parse_leetcode_input(input_str)
 
         # 実行
         result = method(*inputs)
