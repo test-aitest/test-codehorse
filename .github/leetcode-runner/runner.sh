@@ -1,10 +1,10 @@
 #!/bin/bash
 # LeetCode Code Runner
-# Docker内でコードを実行してベンチマークを取る
+# Execute code in Docker container and run benchmarks
 
 set -ex
 
-# 引数
+# Arguments
 LANGUAGE="$1"
 CODE_FILE="$2"
 TEST_CASES_FILE="$3"
@@ -12,33 +12,33 @@ OUTPUT_FILE="$4"
 RUN_COUNT="${5:-20}"
 TIMEOUT="${6:-10}"
 
-# ヘルパーディレクトリ
+# Helper directory
 HELPER_DIR="/leetcode/helpers"
 
-# エラーハンドリング
+# Error handling
 error_exit() {
     echo "{\"success\": false, \"error\": \"$1\"}" > "$OUTPUT_FILE"
     exit 1
 }
 
-# 実行時間を計測する関数（ナノ秒精度）
+# Measure execution time (nanosecond precision)
 measure_time() {
     local start=$(date +%s%N)
     "$@" 2>&1
     local status=$?
     local end=$(date +%s%N)
-    local duration=$(( (end - start) / 1000000 )) # ミリ秒に変換
+    local duration=$(( (end - start) / 1000000 )) # Convert to milliseconds
     echo "EXECUTION_TIME_MS:$duration"
     return $status
 }
 
-# Python実行
+# Python execution
 run_python() {
     local code_file="$1"
     local input="$2"
     local expected="$3"
 
-    # ラッパースクリプト作成
+    # Create wrapper script
     cat > /tmp/wrapper.py << 'WRAPPER_EOF'
 import sys
 sys.path.insert(0, '/leetcode/helpers/python')
@@ -46,29 +46,29 @@ from leetcode_helper import *
 import json
 import time
 
-# ユーザーコードを読み込み
+# Load user code
 with open(sys.argv[1], 'r') as f:
     user_code = f.read()
 
-# 入力と期待出力
+# Input and expected output
 input_str = sys.argv[2]
 expected_str = sys.argv[3]
 
-# ユーザーコード実行
+# Execute user code
 exec(user_code, globals())
 
-# Solutionクラスを探す
+# Find Solution class
 if 'Solution' in dir():
     solution = Solution()
-    # メソッドを探す（最初に見つかった非プライベートメソッド）
+    # Find methods (first non-private method found)
     methods = [m for m in dir(solution) if not m.startswith('_') and callable(getattr(solution, m))]
     if methods:
         method = getattr(solution, methods[0])
 
-        # 入力をパース（LeetCode形式: "nums = [1,2], target = 3"）
+        # Parse input (LeetCode format: "nums = [1,2], target = 3")
         inputs = parse_leetcode_input(input_str)
 
-        # 実行
+        # Execute
         result = method(*inputs)
         output = format_output(result)
         print(f"OUTPUT:{output}")
@@ -81,13 +81,13 @@ WRAPPER_EOF
     timeout "$TIMEOUT" python3 /tmp/wrapper.py "$code_file" "$input" "$expected" 2>&1
 }
 
-# JavaScript実行
+# JavaScript execution
 run_javascript() {
     local code_file="$1"
     local input="$2"
     local expected="$3"
 
-    # ラッパースクリプト作成
+    # Create wrapper script
     cat > /tmp/wrapper.js << 'WRAPPER_EOF'
 const helper = require('/leetcode/helpers/javascript/leetcode_helper.js');
 const fs = require('fs');
@@ -96,20 +96,20 @@ const codeFile = process.argv[2];
 const inputStr = process.argv[3];
 const expectedStr = process.argv[4];
 
-// ユーザーコード読み込み
+// Load user code
 const userCode = fs.readFileSync(codeFile, 'utf8');
 
-// グローバルにヘルパーを公開
+// Expose helpers globally
 global.ListNode = helper.ListNode;
 global.TreeNode = helper.TreeNode;
 
-// ユーザーコード実行
+// Execute user code
 eval(userCode);
 
-// 関数を探して実行
-// パターン1: var xxx = function
-// パターン2: function xxx(
-// パターン3: const xxx = (
+// Find and execute function
+// Pattern 1: var xxx = function
+// Pattern 2: function xxx(
+// Pattern 3: const xxx = (
 let funcName = null;
 let funcMatch = userCode.match(/var\s+(\w+)\s*=\s*function/);
 if (!funcMatch) {
@@ -122,7 +122,7 @@ if (!funcMatch) {
 if (funcMatch) {
     funcName = funcMatch[1];
     const func = eval(funcName);
-    // ヘルパーのparseLeetCodeInputsを使用
+    // Use helper's parseLeetCodeInputs
     const parsed = helper.parseLeetCodeInputs(inputStr);
     const result = func(...parsed);
     console.log('OUTPUT:' + helper.formatOutput(result));
@@ -134,38 +134,38 @@ WRAPPER_EOF
     timeout "$TIMEOUT" node /tmp/wrapper.js "$code_file" "$input" "$expected" 2>&1
 }
 
-# TypeScript トランスパイル（1回のみ）
+# TypeScript transpile (once only)
 compile_typescript() {
     local code_file="$1"
 
-    # TypeScriptをJavaScriptにトランスパイル
+    # Transpile TypeScript to JavaScript
     TS_JS_FILE="/tmp/solution.js"
     esbuild "$code_file" --outfile="$TS_JS_FILE" --format=cjs --platform=node 2>/dev/null || error_exit "TypeScript transpilation failed"
 }
 
-# TypeScript 実行（トランスパイル済みJSを実行）
+# TypeScript execute (run transpiled JS)
 execute_typescript() {
     local input="$1"
     local expected="$2"
 
-    # JavaScript実行
+    # Run JavaScript
     run_javascript "$TS_JS_FILE" "$input" "$expected"
 }
 
-# Java コンパイル（1回のみ）
+# Java compile (once only)
 compile_java() {
     local code_file="$1"
 
-    # コンパイル
+    # Compile
     JAVA_WORK_DIR="/home/leetcode/.cache/java_work"
     rm -rf "$JAVA_WORK_DIR"
     mkdir -p "$JAVA_WORK_DIR"
 
-    # ヘルパークラスをコピー
+    # Copy helper classes
     cp "$HELPER_DIR/java/"*.java "$JAVA_WORK_DIR/"
     cp "$code_file" "$JAVA_WORK_DIR/Solution.java"
 
-    # Main.java作成（LeetCodeHelperクラスを使用）
+    # Create Main.java (using LeetCodeHelper class)
     cat > "$JAVA_WORK_DIR/Main.java" << 'MAIN_EOF'
 import java.util.*;
 
@@ -176,14 +176,14 @@ public class Main {
 
         try {
             Solution solution = new Solution();
-            // リフレクションで最初のpublicメソッドを取得
+            // Get first public method using reflection
             java.lang.reflect.Method[] methods = Solution.class.getDeclaredMethods();
             for (java.lang.reflect.Method method : methods) {
                 if (java.lang.reflect.Modifier.isPublic(method.getModifiers())) {
-                    // LeetCodeHelperを使用して入力をパース
+                    // Parse input using LeetCodeHelper
                     Object[] params = parseInputs(inputStr, method.getParameterTypes());
                     Object result = method.invoke(solution, params);
-                    // LeetCodeHelperを使用して出力をフォーマット
+                    // Format output using LeetCodeHelper
                     System.out.println("OUTPUT:" + LeetCodeHelper.formatOutput(result));
                     break;
                 }
@@ -195,7 +195,7 @@ public class Main {
     }
 
     private static Object[] parseInputs(String input, Class<?>[] types) {
-        // LeetCodeHelperを使用してパース
+        // Parse using LeetCodeHelper
         List<String> values = LeetCodeHelper.parseLeetCodeInput(input);
         Object[] result = new Object[types.length];
 
@@ -228,7 +228,7 @@ public class Main {
         } else if (type == TreeNode.class) {
             return LeetCodeHelper.parseTree(s);
         } else if (type == List.class) {
-            // List<Integer>として処理
+            // Process as List<Integer>
             int[] arr = LeetCodeHelper.parseIntArray(s);
             List<Integer> list = new ArrayList<>();
             for (int v : arr) list.add(v);
@@ -239,11 +239,11 @@ public class Main {
 }
 MAIN_EOF
 
-    # コンパイル
+    # Compile
     javac -d "$JAVA_WORK_DIR" "$JAVA_WORK_DIR"/*.java 2>&1 || error_exit "Java compilation failed"
 }
 
-# Java 実行（コンパイル済みバイナリを実行）
+# Java execute (run compiled binary)
 execute_java() {
     local input="$1"
     local expected="$2"
@@ -252,7 +252,7 @@ execute_java() {
     timeout "$TIMEOUT" java -cp . Main "$input" "$expected" 2>&1
 }
 
-# Go コンパイル（1回のみ）
+# Go compile (once only)
 compile_go() {
     local code_file="$1"
 
@@ -260,31 +260,31 @@ compile_go() {
     rm -rf "$GO_WORK_DIR"
     mkdir -p "$GO_WORK_DIR"
 
-    # go.mod作成
+    # Create go.mod
     cat > "$GO_WORK_DIR/go.mod" << 'GOMOD_EOF'
 module leetcode
 
 go 1.21
 GOMOD_EOF
 
-    # ユーザーコードをコピーしてパッケージ名を修正
+    # Copy user code and fix package name
     cp "$code_file" "$GO_WORK_DIR/solution_impl.go"
-    # package mainが無ければ追加、あれば維持
+    # Add package main if not present, otherwise modify existing package
     if ! grep -q "^package" "$GO_WORK_DIR/solution_impl.go"; then
         sed -i '1i package main' "$GO_WORK_DIR/solution_impl.go"
     else
         sed -i 's/^package.*/package main/' "$GO_WORK_DIR/solution_impl.go"
     fi
 
-    # メソッド名を抽出
-    local method_name=$(grep -E '^func\s+\([a-zA-Z*\s]+\)\s+\w+\(' "$GO_WORK_DIR/solution_impl.go" | head -1 | sed -E 's/.*\)\s+(\w+)\(.*/\1/')
+    # Extract method name (receiver method: func (s *Solution) MethodName())
+    local method_name=$(grep -E '^func\s+\([a-zA-Z* ]+\)\s+\w+\(' "$GO_WORK_DIR/solution_impl.go" | head -1 | sed -E 's/.*\)\s+(\w+)\(.*/\1/')
 
-    # メソッドが見つからない場合は関数を探す
+    # If method not found, look for function
     if [ -z "$method_name" ]; then
         method_name=$(grep -E '^func\s+[A-Z]\w*\(' "$GO_WORK_DIR/solution_impl.go" | head -1 | sed -E 's/^func\s+(\w+)\(.*/\1/')
     fi
 
-    # main.go作成
+    # Create main.go
     cat > "$GO_WORK_DIR/main.go" << MAIN_EOF
 package main
 
@@ -297,20 +297,20 @@ import (
     "strings"
 )
 
-// ListNode リンクリストのノード
+// ListNode represents a linked list node
 type ListNode struct {
     Val  int
     Next *ListNode
 }
 
-// TreeNode 二分木のノード
+// TreeNode represents a binary tree node
 type TreeNode struct {
     Val   int
     Left  *TreeNode
     Right *TreeNode
 }
 
-// LeetCode形式の入力をパース (e.g., "nums = [1,2,3], target = 9")
+// Parse LeetCode format input (e.g., "nums = [1,2,3], target = 9")
 func parseLeetCodeInput(input string) []string {
     var results []string
     var current strings.Builder
@@ -349,7 +349,7 @@ func extractValue(s string) string {
     return s
 }
 
-// 結果をフォーマット
+// Format output
 func formatOutput(val interface{}) string {
     switch v := val.(type) {
     case bool:
@@ -406,14 +406,14 @@ func treeToArray(root *TreeNode) []interface{} {
             result = append(result, nil)
         }
     }
-    // 末尾のnilを削除
+    // Remove trailing nils
     for len(result) > 0 && result[len(result)-1] == nil {
         result = result[:len(result)-1]
     }
     return result
 }
 
-// 入力を型に合わせてパース
+// Parse input according to type
 func parseInputForType(s string, t reflect.Type) reflect.Value {
     s = strings.TrimSpace(s)
 
@@ -429,7 +429,7 @@ func parseInputForType(s string, t reflect.Type) reflect.Value {
             json.Unmarshal([]byte(s), &arr)
             return reflect.ValueOf(arr)
         } else if elemKind == reflect.Slice {
-            // 2次元配列
+            // 2D array
             var arr [][]int
             json.Unmarshal([]byte(s), &arr)
             return reflect.ValueOf(arr)
@@ -461,7 +461,7 @@ func parseInputForType(s string, t reflect.Type) reflect.Value {
         }
     }
 
-    // デフォルト: 文字列
+    // Default: string
     return reflect.ValueOf(s)
 }
 
@@ -511,10 +511,10 @@ func main() {
     inputStr := os.Args[1]
     _ = os.Args[2] // expectedStr
 
-    // Solutionインスタンスを作成
+    // Create Solution instance
     solution := &Solution{}
 
-    // リフレクションでメソッドを呼び出す
+    // Call method using reflection
     solutionValue := reflect.ValueOf(solution)
     method := solutionValue.MethodByName("${method_name}")
 
@@ -523,21 +523,21 @@ func main() {
         os.Exit(1)
     }
 
-    // LeetCode形式の入力をパース
+    // Parse LeetCode format input
     inputs := parseLeetCodeInput(inputStr)
 
-    // メソッドの引数型を取得
+    // Get method parameter types
     methodType := method.Type()
     numParams := methodType.NumIn()
 
-    // 引数を準備
+    // Prepare arguments
     var args []reflect.Value
     for i := 0; i < numParams && i < len(inputs); i++ {
         paramType := methodType.In(i)
         args = append(args, parseInputForType(inputs[i], paramType))
     }
 
-    // メソッド呼び出し
+    // Call method
     results := method.Call(args)
 
     if len(results) > 0 {
@@ -549,12 +549,12 @@ func main() {
 }
 MAIN_EOF
 
-    # ビルド
+    # Build
     cd "$GO_WORK_DIR"
     go build -o solution . 2>&1 || error_exit "Go build failed"
 }
 
-# Go 実行（コンパイル済みバイナリを実行）
+# Go execute (run compiled binary)
 execute_go() {
     local input="$1"
     local expected="$2"
@@ -563,7 +563,7 @@ execute_go() {
     timeout "$TIMEOUT" ./solution "$input" "$expected" 2>&1
 }
 
-# Swift コンパイル（1回のみ）
+# Swift compile (once only)
 compile_swift() {
     local code_file="$1"
 
@@ -571,30 +571,30 @@ compile_swift() {
     rm -rf "$SWIFT_WORK_DIR"
     mkdir -p "$SWIFT_WORK_DIR"
 
-    # ヘルパーをコピー
+    # Copy helper
     cp "$HELPER_DIR/swift/LeetCodeHelper.swift" "$SWIFT_WORK_DIR/"
 
-    # ユーザーコードをコピー
+    # Copy user code
     cp "$code_file" "$SWIFT_WORK_DIR/Solution.swift"
 
-    # メソッド名を抽出（最初の func を探す）
+    # Extract method name (find first func)
     local method_name=$(grep -E '^\s*func\s+\w+' "$SWIFT_WORK_DIR/Solution.swift" | head -1 | sed -E 's/.*func\s+(\w+).*/\1/')
 
-    # メソッドシグネチャを抽出（引数部分）
+    # Extract method signature (argument part)
     local method_sig=$(grep -E '^\s*func\s+'"$method_name"'\s*\(' "$SWIFT_WORK_DIR/Solution.swift" | head -1)
 
-    # 引数の数をカウント（_で始まる引数をカウント）
+    # Count arguments (count arguments starting with _)
     local arg_count=$(echo "$method_sig" | grep -oE '_\s+\w+\s*:' | wc -l | tr -d ' ')
 
-    # 引数の型を抽出
+    # Extract argument types
     local arg_types=$(echo "$method_sig" | sed -E 's/.*\((.*)\).*/\1/' | tr ',' '\n')
 
-    # 呼び出しコードを動的に生成
+    # Dynamically generate call code
     local call_code=""
 
     case $arg_count in
         1)
-            # 1引数の場合
+            # Single argument
             if echo "$arg_types" | grep -q '\[Int\]'; then
                 call_code="solution.${method_name}(parseIntArray(inputs[0]))"
             elif echo "$arg_types" | grep -q '\[String\]'; then
@@ -608,7 +608,7 @@ compile_swift() {
             fi
             ;;
         2)
-            # 2引数の場合 - 型を解析
+            # Two arguments - analyze types
             local first_type=$(echo "$arg_types" | head -1)
             local second_type=$(echo "$arg_types" | tail -1)
 
@@ -638,20 +638,20 @@ compile_swift() {
             call_code="solution.${method_name}(${first_parse}, ${second_parse})"
             ;;
         3)
-            # 3引数の場合
+            # Three arguments
             call_code="solution.${method_name}(parseIntArray(inputs[0]), parseInt(inputs[1]), parseInt(inputs[2]))"
             ;;
         *)
-            # デフォルト: 2引数（配列, Int）と仮定
+            # Default: 2 arguments (array, Int) assumed
             call_code="solution.${method_name}(parseIntArray(inputs[0]), parseInt(inputs[1]))"
             ;;
     esac
 
-    # main.swift作成
+    # Create main.swift
     cat > "$SWIFT_WORK_DIR/main.swift" << MAIN_EOF
 import Foundation
 
-// メイン実行
+// Main execution
 let args = CommandLine.arguments
 if args.count < 3 {
     print("OUTPUT:ERROR_ARGS")
@@ -668,15 +668,15 @@ let result = ${call_code}
 print("OUTPUT:\(formatOutput(result))")
 MAIN_EOF
 
-    # ビルド
+    # Build
     cd "$SWIFT_WORK_DIR"
     swiftc -O -o solution LeetCodeHelper.swift Solution.swift main.swift 2>&1 || error_exit "Swift build failed"
 
-    # 実行権限を付与
+    # Add execute permission
     chmod +x ./solution
 }
 
-# Swift 実行（コンパイル済みバイナリを実行）
+# Swift execute (run compiled binary)
 execute_swift() {
     local input="$1"
     local expected="$2"
@@ -685,7 +685,7 @@ execute_swift() {
     timeout "$TIMEOUT" ./solution "$input" "$expected" 2>&1
 }
 
-# メイン処理
+# Main processing
 main() {
     if [ -z "$LANGUAGE" ] || [ -z "$CODE_FILE" ] || [ -z "$TEST_CASES_FILE" ] || [ -z "$OUTPUT_FILE" ]; then
         error_exit "Usage: runner.sh <language> <code_file> <test_cases_file> <output_file> [run_count] [timeout]"
@@ -699,10 +699,10 @@ main() {
         error_exit "Test cases file not found: $TEST_CASES_FILE"
     fi
 
-    # テストケース読み込み（JSON形式）
+    # Load test cases (JSON format)
     TEST_CASES=$(cat "$TEST_CASES_FILE")
 
-    # コンパイル/トランスパイル言語は先に処理（1回のみ）
+    # Compile/transpile languages first (once only)
     case "$LANGUAGE" in
         typescript)
             compile_typescript "$CODE_FILE"
@@ -718,14 +718,14 @@ main() {
             ;;
     esac
 
-    # 結果格納用
+    # Result storage
     declare -a all_times=()
     declare -a test_results=()
     all_correct=true
     total_runs=0
     successful_runs=0
 
-    # 各テストケースで複数回実行
+    # Run multiple times for each test case
     while IFS= read -r test_case; do
         input=$(echo "$test_case" | jq -r '.input')
         expected=$(echo "$test_case" | jq -r '.expectedOutput')
@@ -733,7 +733,7 @@ main() {
         for ((i=1; i<=RUN_COUNT; i++)); do
             total_runs=$((total_runs + 1))
 
-            # 言語別実行
+            # Execute by language
             case "$LANGUAGE" in
                 python)
                     result=$(measure_time run_python "$CODE_FILE" "$input" "$expected")
@@ -758,7 +758,7 @@ main() {
                     ;;
             esac
 
-            # 実行時間抽出
+            # Extract execution time
             time_ms=$(echo "$result" | grep "EXECUTION_TIME_MS:" | sed 's/EXECUTION_TIME_MS://')
             output=$(echo "$result" | grep "OUTPUT:" | sed 's/OUTPUT://')
 
@@ -766,9 +766,9 @@ main() {
                 all_times+=("$time_ms")
                 successful_runs=$((successful_runs + 1))
 
-                # 結果比較（最初の実行のみ）
+                # Compare results (first run only)
                 if [ $i -eq 1 ]; then
-                    # 正規化して比較
+                    # Normalize for comparison
                     normalized_output=$(echo "$output" | tr -d ' ')
                     normalized_expected=$(echo "$expected" | tr -d ' ')
 
@@ -783,16 +783,16 @@ main() {
         done
     done < <(echo "$TEST_CASES" | jq -c '.[]')
 
-    # 統計計算
+    # Calculate statistics
     if [ ${#all_times[@]} -gt 0 ]; then
-        # 平均
+        # Average
         sum=0
         for t in "${all_times[@]}"; do
             sum=$((sum + t))
         done
         avg=$((sum / ${#all_times[@]}))
 
-        # 最小・最大
+        # Min/Max
         min=${all_times[0]}
         max=${all_times[0]}
         for t in "${all_times[@]}"; do
@@ -800,7 +800,7 @@ main() {
             if [ "$t" -gt "$max" ]; then max=$t; fi
         done
 
-        # 標準偏差（簡易計算）
+        # Standard deviation (simple calculation)
         variance_sum=0
         for t in "${all_times[@]}"; do
             diff=$((t - avg))
@@ -815,7 +815,7 @@ main() {
         stddev=0
     fi
 
-    # 結果をJSON出力
+    # Output result as JSON
     cat > "$OUTPUT_FILE" << EOF
 {
     "success": true,

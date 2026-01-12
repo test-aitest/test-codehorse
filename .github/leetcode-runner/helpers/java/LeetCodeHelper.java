@@ -1,17 +1,17 @@
 // LeetCode Helper for Java
-// データ構造のパースと出力フォーマット
+// Data structure parsing and output formatting
 
 import java.util.*;
 
 public class LeetCodeHelper {
 
     // ========================================
-    // LeetCode入力パース
+    // LeetCode Input Parsing
     // ========================================
 
     /**
-     * LeetCode形式の入力をパース
-     * 例: "nums = [1,2,3], target = 9" -> ["[1,2,3]", "9"]
+     * Parse LeetCode format input
+     * Example: "nums = [1,2,3], target = 9" -> ["[1,2,3]", "9"]
      */
     public static List<String> parseLeetCodeInput(String input) {
         List<String> results = new ArrayList<>();
@@ -39,7 +39,7 @@ public class LeetCodeHelper {
     }
 
     /**
-     * "name = value" 形式から値を抽出
+     * Extract value from "name = value" format
      */
     public static String extractValue(String s) {
         s = s.trim();
@@ -51,11 +51,11 @@ public class LeetCodeHelper {
     }
 
     // ========================================
-    // パース関数
+    // Parse Functions
     // ========================================
 
     /**
-     * 整数配列をパース
+     * Parse integer array
      */
     public static int[] parseIntArray(String s) {
         s = s.trim().replaceAll("[\\[\\]]", "");
@@ -69,7 +69,7 @@ public class LeetCodeHelper {
     }
 
     /**
-     * 2次元整数配列をパース
+     * Parse 2D integer array (matrix)
      */
     public static int[][] parseIntMatrix(String s) {
         s = s.trim();
@@ -101,7 +101,7 @@ public class LeetCodeHelper {
     }
 
     /**
-     * 文字列配列をパース
+     * Parse string array
      */
     public static String[] parseStringArray(String s) {
         s = s.trim().replaceAll("[\\[\\]]", "");
@@ -114,7 +114,7 @@ public class LeetCodeHelper {
     }
 
     /**
-     * null可能整数配列をパース（二分木用）
+     * Parse nullable integer array (for binary tree)
      */
     public static Integer[] parseIntegerArray(String s) {
         s = s.trim().replaceAll("[\\[\\]]", "");
@@ -129,21 +129,21 @@ public class LeetCodeHelper {
     }
 
     /**
-     * 整数をパース
+     * Parse integer
      */
     public static int parseInt(String s) {
         return Integer.parseInt(s.trim());
     }
 
     /**
-     * 文字列をパース（クォートを除去）
+     * Parse string (remove quotes)
      */
     public static String parseString(String s) {
         return s.trim().replaceAll("^\"|\"$", "");
     }
 
     /**
-     * 真偽値をパース
+     * Parse boolean
      */
     public static boolean parseBool(String s) {
         s = s.trim().toLowerCase();
@@ -151,55 +151,55 @@ public class LeetCodeHelper {
     }
 
     /**
-     * 自動型判定でパース
+     * Parse with automatic type detection
      */
     public static Object parseInput(String s) {
         s = s.trim();
         if (s.isEmpty()) return "";
 
-        // 配列
+        // Array
         if (s.startsWith("[")) {
-            // 2次元配列
+            // 2D array
             if (s.startsWith("[[")) {
                 return parseIntMatrix(s);
             }
-            // 文字列配列かチェック
+            // Check if string array
             if (s.contains("\"")) {
                 return parseStringArray(s);
             }
             return parseIntArray(s);
         }
 
-        // 真偽値
+        // Boolean
         String lower = s.toLowerCase();
         if (lower.equals("true") || lower.equals("false")) {
             return parseBool(s);
         }
 
-        // 整数
+        // Integer
         try {
             return Integer.parseInt(s);
         } catch (NumberFormatException e) {
             // not an integer
         }
 
-        // 浮動小数点
+        // Double
         try {
             return Double.parseDouble(s);
         } catch (NumberFormatException e) {
             // not a double
         }
 
-        // 文字列
+        // String
         return parseString(s);
     }
 
     // ========================================
-    // リンクリスト操作
+    // Linked List Operations
     // ========================================
 
     /**
-     * 配列をリンクリストに変換
+     * Convert array to linked list
      */
     public static ListNode arrayToList(int[] arr) {
         if (arr == null || arr.length == 0) return null;
@@ -213,7 +213,7 @@ public class LeetCodeHelper {
     }
 
     /**
-     * リンクリストを配列に変換
+     * Convert linked list to array
      */
     public static int[] listToArray(ListNode head) {
         List<Integer> list = new ArrayList<>();
@@ -226,18 +226,18 @@ public class LeetCodeHelper {
     }
 
     /**
-     * 文字列をリンクリストにパース
+     * Parse string to linked list
      */
     public static ListNode parseLinkedList(String s) {
         return arrayToList(parseIntArray(s));
     }
 
     // ========================================
-    // 二分木操作
+    // Binary Tree Operations
     // ========================================
 
     /**
-     * 配列を二分木に変換
+     * Convert array to binary tree
      */
     public static TreeNode arrayToTree(Integer[] arr) {
         if (arr == null || arr.length == 0 || arr[0] == null) return null;
@@ -250,7 +250,7 @@ public class LeetCodeHelper {
         while (!queue.isEmpty() && i < arr.length) {
             TreeNode node = queue.poll();
 
-            // 左の子
+            // Left child
             if (i < arr.length) {
                 if (arr[i] != null) {
                     node.left = new TreeNode(arr[i]);
@@ -259,7 +259,7 @@ public class LeetCodeHelper {
                 i++;
             }
 
-            // 右の子
+            // Right child
             if (i < arr.length) {
                 if (arr[i] != null) {
                     node.right = new TreeNode(arr[i]);
@@ -273,7 +273,7 @@ public class LeetCodeHelper {
     }
 
     /**
-     * 二分木を配列に変換
+     * Convert binary tree to array
      */
     public static Integer[] treeToArray(TreeNode root) {
         if (root == null) return new Integer[0];
@@ -293,7 +293,7 @@ public class LeetCodeHelper {
             }
         }
 
-        // 末尾のnullを削除
+        // Remove trailing nulls
         while (result.size() > 0 && result.get(result.size() - 1) == null) {
             result.remove(result.size() - 1);
         }
@@ -302,18 +302,18 @@ public class LeetCodeHelper {
     }
 
     /**
-     * 文字列を二分木にパース
+     * Parse string to binary tree
      */
     public static TreeNode parseTree(String s) {
         return arrayToTree(parseIntegerArray(s));
     }
 
     // ========================================
-    // 出力フォーマット
+    // Output Formatting
     // ========================================
 
     /**
-     * 汎用出力フォーマット
+     * Generic output formatter
      */
     public static String formatOutput(Object val) {
         if (val == null) return "null";
