@@ -466,82 +466,14 @@ run_swift() {
     cat > "$work_dir/main.swift" << MAIN_EOF
 import Foundation
 
-// 入力をパース（LeetCode形式）
-func parseLeetCodeInputs(_ input: String) -> [String] {
-    var results: [String] = []
-    var current = ""
-    var bracketDepth = 0
-
-    for char in input {
-        if char == "[" {
-            bracketDepth += 1
-            current.append(char)
-        } else if char == "]" {
-            bracketDepth -= 1
-            current.append(char)
-        } else if char == "," && bracketDepth == 0 {
-            results.append(extractValue(current))
-            current = ""
-        } else {
-            current.append(char)
-        }
-    }
-
-    if !current.isEmpty {
-        results.append(extractValue(current))
-    }
-
-    return results
-}
-
-func extractValue(_ s: String) -> String {
-    if let eqIndex = s.firstIndex(of: "=") {
-        return String(s[s.index(after: eqIndex)...]).trimmingCharacters(in: .whitespaces)
-    }
-    return s.trimmingCharacters(in: .whitespaces)
-}
-
-// 配列パース
-func parseIntArray(_ s: String) -> [Int] {
-    let trimmed = s.trimmingCharacters(in: .whitespaces)
-    if trimmed.isEmpty || trimmed == "[]" { return [] }
-
-    if let data = trimmed.data(using: .utf8),
-       let arr = try? JSONSerialization.jsonObject(with: data) as? [Int] {
-        return arr
-    }
-
-    let cleaned = trimmed
-        .replacingOccurrences(of: "[", with: "")
-        .replacingOccurrences(of: "]", with: "")
-    return cleaned.split(separator: ",").compactMap { Int(\$0.trimmingCharacters(in: .whitespaces)) }
-}
-
-func parseInt(_ s: String) -> Int {
-    return Int(s.trimmingCharacters(in: .whitespaces)) ?? 0
-}
-
-func parseString(_ s: String) -> String {
-    return s.trimmingCharacters(in: .whitespaces)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-}
-
-// 出力フォーマット
+// 出力フォーマット（LeetCodeHelper.swiftにない関数）
 func formatOutput(_ val: Any) -> String {
     if let arr = val as? [Int] {
-        if let data = try? JSONSerialization.data(withJSONObject: arr),
-           let str = String(data: data, encoding: .utf8) {
-            return str
-        }
-        return "[\(arr.map { String(\$0) }.joined(separator: ","))]"
+        return formatIntArray(arr)
     } else if let arr = val as? [String] {
-        if let data = try? JSONSerialization.data(withJSONObject: arr),
-           let str = String(data: data, encoding: .utf8) {
-            return str
-        }
-        return "[]"
+        return formatStringArray(arr)
     } else if let b = val as? Bool {
-        return b ? "true" : "false"
+        return formatBool(b)
     } else if let n = val as? Int {
         return String(n)
     } else if let s = val as? String {
@@ -561,7 +493,7 @@ let inputStr = args[1]
 let _ = args[2] // expectedStr
 
 let solution = Solution()
-let inputs = parseLeetCodeInputs(inputStr)
+let inputs = parseLeetCodeInput(inputStr)
 
 // 入力数に応じて呼び出し
 let result: Any
