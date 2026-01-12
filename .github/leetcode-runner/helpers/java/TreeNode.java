@@ -19,7 +19,7 @@ public class TreeNode {
         this.right = right;
     }
 
-    // 配列から二分木を作成
+    // Create binary tree from array
     public static TreeNode fromArray(Integer[] arr) {
         if (arr == null || arr.length == 0 || arr[0] == null) return null;
 
@@ -31,7 +31,7 @@ public class TreeNode {
         while (!queue.isEmpty() && i < arr.length) {
             TreeNode node = queue.poll();
 
-            // 左の子
+            // Left child
             if (i < arr.length) {
                 if (arr[i] != null) {
                     node.left = new TreeNode(arr[i]);
@@ -40,7 +40,7 @@ public class TreeNode {
                 i++;
             }
 
-            // 右の子
+            // Right child
             if (i < arr.length) {
                 if (arr[i] != null) {
                     node.right = new TreeNode(arr[i]);
@@ -53,7 +53,7 @@ public class TreeNode {
         return root;
     }
 
-    // 二分木を配列に変換
+    // Convert binary tree to array
     public static Integer[] toArray(TreeNode root) {
         if (root == null) return new Integer[0];
 
@@ -72,7 +72,7 @@ public class TreeNode {
             }
         }
 
-        // 末尾のnullを削除
+        // Remove trailing nulls
         while (result.size() > 0 && result.get(result.size() - 1) == null) {
             result.remove(result.size() - 1);
         }

@@ -152,6 +152,62 @@ function parseTree(s) {
 }
 
 // ========================================
+// LeetCode入力パース
+// ========================================
+
+/**
+ * LeetCode形式の入力をパース
+ * 例: "nums = [1,2,3], target = 9" -> ["[1,2,3]", "9"]
+ */
+function parseLeetCodeInput(input) {
+  input = input.trim();
+  if (!input) return [];
+
+  const results = [];
+  let current = '';
+  let bracketDepth = 0;
+
+  for (const char of input) {
+    if (char === '[') {
+      bracketDepth++;
+      current += char;
+    } else if (char === ']') {
+      bracketDepth--;
+      current += char;
+    } else if (char === ',' && bracketDepth === 0) {
+      results.push(extractValue(current));
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  if (current.trim()) {
+    results.push(extractValue(current));
+  }
+  return results;
+}
+
+/**
+ * "name = value" 形式から値を抽出
+ */
+function extractValue(s) {
+  s = s.trim();
+  const eqIndex = s.indexOf('=');
+  if (eqIndex !== -1) {
+    return s.substring(eqIndex + 1).trim();
+  }
+  return s;
+}
+
+/**
+ * LeetCode入力をパースして型変換済みの配列を返す
+ */
+function parseLeetCodeInputs(input) {
+  const stringInputs = parseLeetCodeInput(input);
+  return stringInputs.map(s => parseInput(s));
+}
+
+// ========================================
 // 入力パース（汎用）
 // ========================================
 
@@ -222,6 +278,9 @@ module.exports = {
   listToTree,
   treeToList,
   parseTree,
+  parseLeetCodeInput,
+  parseLeetCodeInputs,
+  extractValue,
   parseInput,
   formatOutput,
 };

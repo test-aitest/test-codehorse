@@ -369,3 +369,91 @@ private func extractValue(_ s: String) -> String {
     }
     return s.trimmingCharacters(in: .whitespaces)
 }
+
+// ========================================
+// Auto-type Parsing (like Python's parse_input)
+// ========================================
+
+// Parse input with automatic type detection
+public func parseInput(_ s: String) -> Any {
+    let trimmed = s.trimmingCharacters(in: .whitespaces)
+
+    // Empty check
+    if trimmed.isEmpty {
+        return ""
+    }
+
+    // Array detection
+    if trimmed.hasPrefix("[") {
+        // 2D array detection
+        if trimmed.hasPrefix("[[") {
+            return parseIntMatrix(trimmed)
+        }
+        // Check if it's a string array or int array
+        if let data = trimmed.data(using: .utf8),
+           let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] {
+            // Check first element type
+            if let first = arr.first {
+                if first is String {
+                    return parseStringArray(trimmed)
+                }
+            }
+        }
+        return parseIntArray(trimmed)
+    }
+
+    // Boolean detection
+    let lower = trimmed.lowercased()
+    if lower == "true" || lower == "false" {
+        return parseBool(trimmed)
+    }
+
+    // Integer detection
+    if let intVal = Int(trimmed) {
+        return intVal
+    }
+
+    // Double detection
+    if let doubleVal = Double(trimmed) {
+        return doubleVal
+    }
+
+    // Default: string
+    return parseString(trimmed)
+}
+
+// Parse LeetCode input and return parsed values
+public func parseLeetCodeInputs(_ input: String) -> [Any] {
+    let stringInputs = parseLeetCodeInput(input)
+    return stringInputs.map { parseInput($0) }
+}
+
+// ========================================
+// Generic Output Formatting
+// ========================================
+
+// Format any output value to string
+public func formatOutput(_ val: Any) -> String {
+    if let arr = val as? [Int] {
+        return formatIntArray(arr)
+    } else if let arr = val as? [String] {
+        return formatStringArray(arr)
+    } else if let arr = val as? [[Int]] {
+        return formatIntMatrix(arr)
+    } else if let arr = val as? [Int?] {
+        return formatNullableIntArray(arr)
+    } else if let node = val as? ListNode {
+        return formatList(node)
+    } else if let node = val as? TreeNode {
+        return formatTree(node)
+    } else if let b = val as? Bool {
+        return formatBool(b)
+    } else if let n = val as? Int {
+        return String(n)
+    } else if let d = val as? Double {
+        return String(d)
+    } else if let s = val as? String {
+        return s
+    }
+    return String(describing: val)
+}

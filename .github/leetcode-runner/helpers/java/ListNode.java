@@ -15,7 +15,7 @@ public class ListNode {
         this.next = next;
     }
 
-    // 配列からリンクリストを作成
+    // Create linked list from array
     public static ListNode fromArray(int[] arr) {
         if (arr == null || arr.length == 0) return null;
         ListNode head = new ListNode(arr[0]);
@@ -27,7 +27,7 @@ public class ListNode {
         return head;
     }
 
-    // リンクリストを配列に変換
+    // Convert linked list to array
     public static int[] toArray(ListNode head) {
         java.util.List<Integer> list = new java.util.ArrayList<>();
         ListNode current = head;
