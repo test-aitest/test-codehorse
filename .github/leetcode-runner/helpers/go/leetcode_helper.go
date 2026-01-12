@@ -332,3 +332,103 @@ func FormatIntMatrix(matrix [][]int) string {
 	b, _ := json.Marshal(matrix)
 	return string(b)
 }
+
+// ========================================
+// LeetCode入力パース
+// ========================================
+
+// ParseLeetCodeInput LeetCode形式の入力をパース
+// 例: "nums = [1,2,3], target = 9" -> ["[1,2,3]", "9"]
+func ParseLeetCodeInput(input string) []string {
+	var results []string
+	var current strings.Builder
+	bracketDepth := 0
+
+	for _, c := range input {
+		switch c {
+		case '[':
+			bracketDepth++
+			current.WriteRune(c)
+		case ']':
+			bracketDepth--
+			current.WriteRune(c)
+		case ',':
+			if bracketDepth == 0 {
+				results = append(results, extractValue(current.String()))
+				current.Reset()
+			} else {
+				current.WriteRune(c)
+			}
+		default:
+			current.WriteRune(c)
+		}
+	}
+	if current.Len() > 0 {
+		results = append(results, extractValue(current.String()))
+	}
+	return results
+}
+
+// extractValue "name = value" 形式から値を抽出
+func extractValue(s string) string {
+	s = strings.TrimSpace(s)
+	if idx := strings.Index(s, "="); idx != -1 {
+		return strings.TrimSpace(s[idx+1:])
+	}
+	return s
+}
+
+// ParseInput 自動型判定でパース
+func ParseInput(s string) interface{} {
+	s = strings.TrimSpace(s)
+
+	// 空文字チェック
+	if s == "" {
+		return ""
+	}
+
+	// 配列
+	if strings.HasPrefix(s, "[") {
+		// 2次元配列
+		if strings.HasPrefix(s, "[[") {
+			return ParseIntMatrix(s)
+		}
+		// 文字列配列かチェック
+		var raw []interface{}
+		if err := json.Unmarshal([]byte(s), &raw); err == nil && len(raw) > 0 {
+			if _, ok := raw[0].(string); ok {
+				return ParseStringList(s)
+			}
+		}
+		return ParseIntList(s)
+	}
+
+	// 真偽値
+	lower := strings.ToLower(s)
+	if lower == "true" || lower == "false" {
+		return ParseBool(s)
+	}
+
+	// 整数
+	if v, err := strconv.Atoi(s); err == nil {
+		return v
+	}
+
+	// 浮動小数点
+	if v, err := strconv.ParseFloat(s, 64); err == nil {
+		return v
+	}
+
+	// 文字列
+	return ParseString(s)
+}
+
+// ParseLeetCodeInputs LeetCode入力をパースして型変換済みの配列を返す
+func ParseLeetCodeInputs(input string) []interface{} {
+	stringInputs := ParseLeetCodeInput(input)
+	result := make([]interface{}, len(stringInputs))
+	for i, s := range stringInputs {
+		result[i] = ParseInput(s)
+	}
+	return result
+}

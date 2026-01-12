@@ -106,43 +106,6 @@ global.TreeNode = helper.TreeNode;
 // ユーザーコード実行
 eval(userCode);
 
-// LeetCode形式の入力をパース (e.g., "nums = [1,2,3], target = 9")
-function parseLeetCodeInput(s) {
-    s = s.trim();
-    if (!s) return [];
-
-    const params = [];
-    let current = '';
-    let bracketDepth = 0;
-
-    for (const char of s) {
-        if (char === '[') {
-            bracketDepth++;
-            current += char;
-        } else if (char === ']') {
-            bracketDepth--;
-            current += char;
-        } else if (char === ',' && bracketDepth === 0) {
-            params.push(current.trim());
-            current = '';
-        } else {
-            current += char;
-        }
-    }
-    if (current.trim()) {
-        params.push(current.trim());
-    }
-
-    // 各パラメータから値を抽出してパース
-    return params.map(param => {
-        let valuePart = param;
-        if (param.includes('=')) {
-            valuePart = param.split('=')[1].trim();
-        }
-        return helper.parseInput(valuePart);
-    });
-}
-
 // 関数を探して実行
 // パターン1: var xxx = function
 // パターン2: function xxx(
@@ -159,7 +122,8 @@ if (!funcMatch) {
 if (funcMatch) {
     funcName = funcMatch[1];
     const func = eval(funcName);
-    const parsed = parseLeetCodeInput(inputStr);
+    // ヘルパーのparseLeetCodeInputsを使用
+    const parsed = helper.parseLeetCodeInputs(inputStr);
     const result = func(...parsed);
     console.log('OUTPUT:' + helper.formatOutput(result));
 } else {
@@ -170,37 +134,39 @@ WRAPPER_EOF
     timeout "$TIMEOUT" node /tmp/wrapper.js "$code_file" "$input" "$expected" 2>&1
 }
 
-# TypeScript実行（esbuildでトランスパイル）
-run_typescript() {
+# TypeScript トランスパイル（1回のみ）
+compile_typescript() {
     local code_file="$1"
-    local input="$2"
-    local expected="$3"
 
     # TypeScriptをJavaScriptにトランスパイル
-    local js_file="/tmp/solution.js"
-    esbuild "$code_file" --outfile="$js_file" --format=cjs --platform=node 2>/dev/null
-
-    # JavaScript実行
-    run_javascript "$js_file" "$input" "$expected"
+    TS_JS_FILE="/tmp/solution.js"
+    esbuild "$code_file" --outfile="$TS_JS_FILE" --format=cjs --platform=node 2>/dev/null || error_exit "TypeScript transpilation failed"
 }
 
-# Java実行
-run_java() {
+# TypeScript 実行（トランスパイル済みJSを実行）
+execute_typescript() {
+    local input="$1"
+    local expected="$2"
+
+    # JavaScript実行
+    run_javascript "$TS_JS_FILE" "$input" "$expected"
+}
+
+# Java コンパイル（1回のみ）
+compile_java() {
     local code_file="$1"
-    local input="$2"
-    local expected="$3"
 
     # コンパイル
-    local work_dir="/home/leetcode/.cache/java_work"
-    rm -rf "$work_dir"
-    mkdir -p "$work_dir"
+    JAVA_WORK_DIR="/home/leetcode/.cache/java_work"
+    rm -rf "$JAVA_WORK_DIR"
+    mkdir -p "$JAVA_WORK_DIR"
 
     # ヘルパークラスをコピー
-    cp "$HELPER_DIR/java/"*.java "$work_dir/"
-    cp "$code_file" "$work_dir/Solution.java"
+    cp "$HELPER_DIR/java/"*.java "$JAVA_WORK_DIR/"
+    cp "$code_file" "$JAVA_WORK_DIR/Solution.java"
 
-    # Main.java作成
-    cat > "$work_dir/Main.java" << 'MAIN_EOF'
+    # Main.java作成（LeetCodeHelperクラスを使用）
+    cat > "$JAVA_WORK_DIR/Main.java" << 'MAIN_EOF'
 import java.util.*;
 
 public class Main {
@@ -214,10 +180,11 @@ public class Main {
             java.lang.reflect.Method[] methods = Solution.class.getDeclaredMethods();
             for (java.lang.reflect.Method method : methods) {
                 if (java.lang.reflect.Modifier.isPublic(method.getModifiers())) {
-                    // 入力をパース
+                    // LeetCodeHelperを使用して入力をパース
                     Object[] params = parseInputs(inputStr, method.getParameterTypes());
                     Object result = method.invoke(solution, params);
-                    System.out.println("OUTPUT:" + formatOutput(result));
+                    // LeetCodeHelperを使用して出力をフォーマット
+                    System.out.println("OUTPUT:" + LeetCodeHelper.formatOutput(result));
                     break;
                 }
             }
@@ -227,43 +194,9 @@ public class Main {
         }
     }
 
-    // LeetCode形式の入力をパース (e.g., "nums = [1,2,3], target = 9")
-    private static List<String> parseLeetCodeInput(String input) {
-        List<String> results = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        int bracketDepth = 0;
-
-        for (char c : input.toCharArray()) {
-            if (c == '[') {
-                bracketDepth++;
-                current.append(c);
-            } else if (c == ']') {
-                bracketDepth--;
-                current.append(c);
-            } else if (c == ',' && bracketDepth == 0) {
-                results.add(extractValue(current.toString()));
-                current = new StringBuilder();
-            } else {
-                current.append(c);
-            }
-        }
-        if (current.length() > 0) {
-            results.add(extractValue(current.toString()));
-        }
-        return results;
-    }
-
-    private static String extractValue(String s) {
-        s = s.trim();
-        int eqIndex = s.indexOf('=');
-        if (eqIndex != -1) {
-            return s.substring(eqIndex + 1).trim();
-        }
-        return s;
-    }
-
     private static Object[] parseInputs(String input, Class<?>[] types) {
-        List<String> values = parseLeetCodeInput(input);
+        // LeetCodeHelperを使用してパース
+        List<String> values = LeetCodeHelper.parseLeetCodeInput(input);
         Object[] result = new Object[types.length];
 
         for (int i = 0; i < types.length && i < values.size(); i++) {
@@ -275,186 +208,84 @@ public class Main {
     private static Object parseValue(String s, Class<?> type) {
         s = s.trim();
         if (type == int[].class) {
-            return parseIntArray(s);
+            return LeetCodeHelper.parseIntArray(s);
         } else if (type == int[][].class) {
-            return parseIntMatrix(s);
+            return LeetCodeHelper.parseIntMatrix(s);
         } else if (type == int.class || type == Integer.class) {
-            return Integer.parseInt(s);
+            return LeetCodeHelper.parseInt(s);
         } else if (type == long.class || type == Long.class) {
             return Long.parseLong(s);
         } else if (type == double.class || type == Double.class) {
             return Double.parseDouble(s);
         } else if (type == boolean.class || type == Boolean.class) {
-            return s.equalsIgnoreCase("true") || s.equals("1");
+            return LeetCodeHelper.parseBool(s);
         } else if (type == String.class) {
-            return s.replaceAll("^\"|\"$", "");
+            return LeetCodeHelper.parseString(s);
         } else if (type == String[].class) {
-            return parseStringArray(s);
+            return LeetCodeHelper.parseStringArray(s);
         } else if (type == ListNode.class) {
-            return ListNode.fromArray(parseIntArray(s));
+            return LeetCodeHelper.parseLinkedList(s);
         } else if (type == TreeNode.class) {
-            return TreeNode.fromArray(parseIntegerArray(s));
+            return LeetCodeHelper.parseTree(s);
         } else if (type == List.class) {
             // List<Integer>として処理
-            int[] arr = parseIntArray(s);
+            int[] arr = LeetCodeHelper.parseIntArray(s);
             List<Integer> list = new ArrayList<>();
             for (int v : arr) list.add(v);
             return list;
         }
         return null;
     }
-
-    private static int[] parseIntArray(String s) {
-        s = s.trim().replaceAll("[\\[\\]]", "");
-        if (s.isEmpty()) return new int[0];
-        String[] parts = s.split(",");
-        int[] arr = new int[parts.length];
-        for (int i = 0; i < parts.length; i++) {
-            arr[i] = Integer.parseInt(parts[i].trim());
-        }
-        return arr;
-    }
-
-    private static int[][] parseIntMatrix(String s) {
-        s = s.trim();
-        if (s.equals("[]") || s.isEmpty()) return new int[0][];
-
-        List<int[]> rows = new ArrayList<>();
-        int depth = 0;
-        StringBuilder current = new StringBuilder();
-
-        for (int i = 1; i < s.length() - 1; i++) {
-            char c = s.charAt(i);
-            if (c == '[') {
-                depth++;
-                if (depth == 1) current = new StringBuilder();
-                current.append(c);
-            } else if (c == ']') {
-                current.append(c);
-                depth--;
-                if (depth == 0) {
-                    rows.add(parseIntArray(current.toString()));
-                }
-            } else if (c == ',' && depth == 0) {
-                // skip
-            } else {
-                current.append(c);
-            }
-        }
-        return rows.toArray(new int[0][]);
-    }
-
-    private static String[] parseStringArray(String s) {
-        s = s.trim().replaceAll("[\\[\\]]", "");
-        if (s.isEmpty()) return new String[0];
-        String[] parts = s.split(",");
-        for (int i = 0; i < parts.length; i++) {
-            parts[i] = parts[i].trim().replaceAll("^\"|\"$", "");
-        }
-        return parts;
-    }
-
-    private static Integer[] parseIntegerArray(String s) {
-        s = s.trim().replaceAll("[\\[\\]]", "");
-        if (s.isEmpty()) return new Integer[0];
-        String[] parts = s.split(",");
-        Integer[] arr = new Integer[parts.length];
-        for (int i = 0; i < parts.length; i++) {
-            String p = parts[i].trim();
-            arr[i] = p.equals("null") ? null : Integer.parseInt(p);
-        }
-        return arr;
-    }
-
-    private static String formatOutput(Object val) {
-        if (val == null) return "null";
-        if (val instanceof int[]) {
-            return Arrays.toString((int[])val).replaceAll(" ", "");
-        } else if (val instanceof int[][]) {
-            StringBuilder sb = new StringBuilder("[");
-            int[][] matrix = (int[][])val;
-            for (int i = 0; i < matrix.length; i++) {
-                if (i > 0) sb.append(",");
-                sb.append(Arrays.toString(matrix[i]).replaceAll(" ", ""));
-            }
-            sb.append("]");
-            return sb.toString();
-        } else if (val instanceof Integer[]) {
-            return Arrays.toString((Integer[])val).replaceAll(" ", "");
-        } else if (val instanceof String[]) {
-            StringBuilder sb = new StringBuilder("[");
-            String[] arr = (String[])val;
-            for (int i = 0; i < arr.length; i++) {
-                if (i > 0) sb.append(",");
-                sb.append("\"").append(arr[i]).append("\"");
-            }
-            sb.append("]");
-            return sb.toString();
-        } else if (val instanceof ListNode) {
-            return Arrays.toString(ListNode.toArray((ListNode)val)).replaceAll(" ", "");
-        } else if (val instanceof TreeNode) {
-            Integer[] arr = TreeNode.toArray((TreeNode)val);
-            StringBuilder sb = new StringBuilder("[");
-            for (int i = 0; i < arr.length; i++) {
-                if (i > 0) sb.append(",");
-                sb.append(arr[i] == null ? "null" : arr[i]);
-            }
-            sb.append("]");
-            return sb.toString();
-        } else if (val instanceof Boolean) {
-            return ((Boolean)val) ? "true" : "false";
-        } else if (val instanceof List) {
-            return val.toString().replaceAll(" ", "");
-        }
-        return String.valueOf(val);
-    }
 }
 MAIN_EOF
 
     # コンパイル
-    javac -d "$work_dir" "$work_dir"/*.java 2>&1 || error_exit "Java compilation failed"
+    javac -d "$JAVA_WORK_DIR" "$JAVA_WORK_DIR"/*.java 2>&1 || error_exit "Java compilation failed"
+}
 
-    # 実行
-    cd "$work_dir"
+# Java 実行（コンパイル済みバイナリを実行）
+execute_java() {
+    local input="$1"
+    local expected="$2"
+
+    cd "$JAVA_WORK_DIR"
     timeout "$TIMEOUT" java -cp . Main "$input" "$expected" 2>&1
 }
 
-# Go実行
-run_go() {
+# Go コンパイル（1回のみ）
+compile_go() {
     local code_file="$1"
-    local input="$2"
-    local expected="$3"
 
-    local work_dir="/home/leetcode/.cache/go_work"
-    rm -rf "$work_dir"
-    mkdir -p "$work_dir"
+    GO_WORK_DIR="/home/leetcode/.cache/go_work"
+    rm -rf "$GO_WORK_DIR"
+    mkdir -p "$GO_WORK_DIR"
 
     # go.mod作成
-    cat > "$work_dir/go.mod" << 'GOMOD_EOF'
+    cat > "$GO_WORK_DIR/go.mod" << 'GOMOD_EOF'
 module leetcode
 
 go 1.21
 GOMOD_EOF
 
     # ユーザーコードをコピーしてパッケージ名を修正
-    cp "$code_file" "$work_dir/solution_impl.go"
+    cp "$code_file" "$GO_WORK_DIR/solution_impl.go"
     # package mainが無ければ追加、あれば維持
-    if ! grep -q "^package" "$work_dir/solution_impl.go"; then
-        sed -i '1i package main' "$work_dir/solution_impl.go"
+    if ! grep -q "^package" "$GO_WORK_DIR/solution_impl.go"; then
+        sed -i '1i package main' "$GO_WORK_DIR/solution_impl.go"
     else
-        sed -i 's/^package.*/package main/' "$work_dir/solution_impl.go"
+        sed -i 's/^package.*/package main/' "$GO_WORK_DIR/solution_impl.go"
     fi
 
     # メソッド名を抽出
-    local method_name=$(grep -E '^func\s+\([a-zA-Z*\s]+\)\s+\w+\(' "$work_dir/solution_impl.go" | head -1 | sed -E 's/.*\)\s+(\w+)\(.*/\1/')
+    local method_name=$(grep -E '^func\s+\([a-zA-Z*\s]+\)\s+\w+\(' "$GO_WORK_DIR/solution_impl.go" | head -1 | sed -E 's/.*\)\s+(\w+)\(.*/\1/')
 
     # メソッドが見つからない場合は関数を探す
     if [ -z "$method_name" ]; then
-        method_name=$(grep -E '^func\s+[A-Z]\w*\(' "$work_dir/solution_impl.go" | head -1 | sed -E 's/^func\s+(\w+)\(.*/\1/')
+        method_name=$(grep -E '^func\s+[A-Z]\w*\(' "$GO_WORK_DIR/solution_impl.go" | head -1 | sed -E 's/^func\s+(\w+)\(.*/\1/')
     fi
 
     # main.go作成
-    cat > "$work_dir/main.go" << MAIN_EOF
+    cat > "$GO_WORK_DIR/main.go" << MAIN_EOF
 package main
 
 import (
@@ -719,34 +550,38 @@ func main() {
 MAIN_EOF
 
     # ビルド
-    cd "$work_dir"
+    cd "$GO_WORK_DIR"
     go build -o solution . 2>&1 || error_exit "Go build failed"
+}
 
-    # 実行
+# Go 実行（コンパイル済みバイナリを実行）
+execute_go() {
+    local input="$1"
+    local expected="$2"
+
+    cd "$GO_WORK_DIR"
     timeout "$TIMEOUT" ./solution "$input" "$expected" 2>&1
 }
 
-# Swift実行
-run_swift() {
+# Swift コンパイル（1回のみ）
+compile_swift() {
     local code_file="$1"
-    local input="$2"
-    local expected="$3"
 
-    local work_dir="/home/leetcode/.cache/swift_work"
-    rm -rf "$work_dir"
-    mkdir -p "$work_dir"
+    SWIFT_WORK_DIR="/home/leetcode/.cache/swift_work"
+    rm -rf "$SWIFT_WORK_DIR"
+    mkdir -p "$SWIFT_WORK_DIR"
 
     # ヘルパーをコピー
-    cp "$HELPER_DIR/swift/LeetCodeHelper.swift" "$work_dir/"
+    cp "$HELPER_DIR/swift/LeetCodeHelper.swift" "$SWIFT_WORK_DIR/"
 
     # ユーザーコードをコピー
-    cp "$code_file" "$work_dir/Solution.swift"
+    cp "$code_file" "$SWIFT_WORK_DIR/Solution.swift"
 
     # メソッド名を抽出（最初の func を探す）
-    local method_name=$(grep -E '^\s*func\s+\w+' "$work_dir/Solution.swift" | head -1 | sed -E 's/.*func\s+(\w+).*/\1/')
+    local method_name=$(grep -E '^\s*func\s+\w+' "$SWIFT_WORK_DIR/Solution.swift" | head -1 | sed -E 's/.*func\s+(\w+).*/\1/')
 
     # メソッドシグネチャを抽出（引数部分）
-    local method_sig=$(grep -E '^\s*func\s+'"$method_name"'\s*\(' "$work_dir/Solution.swift" | head -1)
+    local method_sig=$(grep -E '^\s*func\s+'"$method_name"'\s*\(' "$SWIFT_WORK_DIR/Solution.swift" | head -1)
 
     # 引数の数をカウント（_で始まる引数をカウント）
     local arg_count=$(echo "$method_sig" | grep -oE '_\s+\w+\s*:' | wc -l | tr -d ' ')
@@ -756,7 +591,6 @@ run_swift() {
 
     # 呼び出しコードを動的に生成
     local call_code=""
-    local parse_code=""
 
     case $arg_count in
         1)
@@ -814,7 +648,7 @@ run_swift() {
     esac
 
     # main.swift作成
-    cat > "$work_dir/main.swift" << MAIN_EOF
+    cat > "$SWIFT_WORK_DIR/main.swift" << MAIN_EOF
 import Foundation
 
 // メイン実行
@@ -835,13 +669,19 @@ print("OUTPUT:\(formatOutput(result))")
 MAIN_EOF
 
     # ビルド
-    cd "$work_dir"
+    cd "$SWIFT_WORK_DIR"
     swiftc -O -o solution LeetCodeHelper.swift Solution.swift main.swift 2>&1 || error_exit "Swift build failed"
 
     # 実行権限を付与
     chmod +x ./solution
+}
 
-    # 実行
+# Swift 実行（コンパイル済みバイナリを実行）
+execute_swift() {
+    local input="$1"
+    local expected="$2"
+
+    cd "$SWIFT_WORK_DIR"
     timeout "$TIMEOUT" ./solution "$input" "$expected" 2>&1
 }
 
@@ -861,6 +701,22 @@ main() {
 
     # テストケース読み込み（JSON形式）
     TEST_CASES=$(cat "$TEST_CASES_FILE")
+
+    # コンパイル/トランスパイル言語は先に処理（1回のみ）
+    case "$LANGUAGE" in
+        typescript)
+            compile_typescript "$CODE_FILE"
+            ;;
+        java)
+            compile_java "$CODE_FILE"
+            ;;
+        go)
+            compile_go "$CODE_FILE"
+            ;;
+        swift)
+            compile_swift "$CODE_FILE"
+            ;;
+    esac
 
     # 結果格納用
     declare -a all_times=()
@@ -886,16 +742,16 @@ main() {
                     result=$(measure_time run_javascript "$CODE_FILE" "$input" "$expected")
                     ;;
                 typescript)
-                    result=$(measure_time run_typescript "$CODE_FILE" "$input" "$expected")
+                    result=$(measure_time execute_typescript "$input" "$expected")
                     ;;
                 java)
-                    result=$(measure_time run_java "$CODE_FILE" "$input" "$expected")
+                    result=$(measure_time execute_java "$input" "$expected")
                     ;;
                 go)
-                    result=$(measure_time run_go "$CODE_FILE" "$input" "$expected")
+                    result=$(measure_time execute_go "$input" "$expected")
                     ;;
                 swift)
-                    result=$(measure_time run_swift "$CODE_FILE" "$input" "$expected")
+                    result=$(measure_time execute_swift "$input" "$expected")
                     ;;
                 *)
                     error_exit "Unsupported language: $LANGUAGE"

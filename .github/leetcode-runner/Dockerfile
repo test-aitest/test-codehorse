@@ -78,6 +78,7 @@ COPY helpers/javascript/leetcode_helper.d.ts /leetcode/helpers/javascript/
 # Java ヘルパー
 COPY helpers/java/ListNode.java /leetcode/helpers/java/
 COPY helpers/java/TreeNode.java /leetcode/helpers/java/
+COPY helpers/java/LeetCodeHelper.java /leetcode/helpers/java/
 
 # Go ヘルパー
 COPY helpers/go/leetcode_helper.go /leetcode/helpers/go/

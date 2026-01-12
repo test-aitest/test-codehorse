@@ -27,5 +27,8 @@ export function listToTree(arr: (number | null)[]): TreeNode | null;
 export function treeToList(root: TreeNode | null): (number | null)[];
 export function parseTree(s: string): TreeNode | null;
 
+export function parseLeetCodeInput(input: string): string[];
+export function extractValue(s: string): string;
+export function parseLeetCodeInputs(input: string): any[];
 export function parseInput(s: string, typeHint?: string): any;
 export function formatOutput(value: any): string;
