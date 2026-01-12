@@ -456,31 +456,80 @@ run_swift() {
     # ユーザーコードをコピー
     cp "$code_file" "$work_dir/Solution.swift"
 
-    # クラス/構造体名を抽出（Solution）
-    local has_solution_class=$(grep -E 'class\s+Solution|struct\s+Solution' "$work_dir/Solution.swift" || echo "")
-
     # メソッド名を抽出（最初の func を探す）
     local method_name=$(grep -E '^\s*func\s+\w+' "$work_dir/Solution.swift" | head -1 | sed -E 's/.*func\s+(\w+).*/\1/')
+
+    # メソッドシグネチャを抽出（引数部分）
+    local method_sig=$(grep -E '^\s*func\s+'"$method_name"'\s*\(' "$work_dir/Solution.swift" | head -1)
+
+    # 引数の数をカウント（_で始まる引数をカウント）
+    local arg_count=$(echo "$method_sig" | grep -oE '_\s+\w+\s*:' | wc -l | tr -d ' ')
+
+    # 引数の型を抽出
+    local arg_types=$(echo "$method_sig" | sed -E 's/.*\((.*)\).*/\1/' | tr ',' '\n')
+
+    # 呼び出しコードを動的に生成
+    local call_code=""
+    local parse_code=""
+
+    case $arg_count in
+        1)
+            # 1引数の場合
+            if echo "$arg_types" | grep -q '\[Int\]'; then
+                call_code="solution.${method_name}(parseIntArray(inputs[0]))"
+            elif echo "$arg_types" | grep -q '\[String\]'; then
+                call_code="solution.${method_name}(parseStringArray(inputs[0]))"
+            elif echo "$arg_types" | grep -qE '^[^[]*Int[^]]'; then
+                call_code="solution.${method_name}(parseInt(inputs[0]))"
+            elif echo "$arg_types" | grep -q 'String'; then
+                call_code="solution.${method_name}(parseString(inputs[0]))"
+            else
+                call_code="solution.${method_name}(parseIntArray(inputs[0]))"
+            fi
+            ;;
+        2)
+            # 2引数の場合 - 型を解析
+            local first_type=$(echo "$arg_types" | head -1)
+            local second_type=$(echo "$arg_types" | tail -1)
+
+            local first_parse="parseIntArray(inputs[0])"
+            local second_parse="parseInt(inputs[1])"
+
+            if echo "$first_type" | grep -q '\[Int\]'; then
+                first_parse="parseIntArray(inputs[0])"
+            elif echo "$first_type" | grep -q '\[String\]'; then
+                first_parse="parseStringArray(inputs[0])"
+            elif echo "$first_type" | grep -qE 'Int[^]]'; then
+                first_parse="parseInt(inputs[0])"
+            elif echo "$first_type" | grep -q 'String'; then
+                first_parse="parseString(inputs[0])"
+            fi
+
+            if echo "$second_type" | grep -q '\[Int\]'; then
+                second_parse="parseIntArray(inputs[1])"
+            elif echo "$second_type" | grep -q '\[String\]'; then
+                second_parse="parseStringArray(inputs[1])"
+            elif echo "$second_type" | grep -qE 'Int[^]]'; then
+                second_parse="parseInt(inputs[1])"
+            elif echo "$second_type" | grep -q 'String'; then
+                second_parse="parseString(inputs[1])"
+            fi
+
+            call_code="solution.${method_name}(${first_parse}, ${second_parse})"
+            ;;
+        3)
+            # 3引数の場合
+            call_code="solution.${method_name}(parseIntArray(inputs[0]), parseInt(inputs[1]), parseInt(inputs[2]))"
+            ;;
+        *)
+            # デフォルト: 2引数（配列, Int）と仮定
+            call_code="solution.${method_name}(parseIntArray(inputs[0]), parseInt(inputs[1]))"
+            ;;
+    esac
 
     # main.swift作成
     cat > "$work_dir/main.swift" << MAIN_EOF
 import Foundation
-
-// 出力フォーマット（LeetCodeHelper.swiftにない関数）
-func formatOutput(_ val: Any) -> String {
-    if let arr = val as? [Int] {
-        return formatIntArray(arr)
-    } else if let arr = val as? [String] {
-        return formatStringArray(arr)
-    } else if let b = val as? Bool {
-        return formatBool(b)
-    } else if let n = val as? Int {
-        return String(n)
-    } else if let s = val as? String {
-        return s
-    }
-    return String(describing: val)
-}
 
 // メイン実行
 let args = CommandLine.arguments
@@ -495,40 +544,7 @@ let _ = args[2] // expectedStr
 let solution = Solution()
 let inputs = parseLeetCodeInput(inputStr)
 
-// 入力数に応じて呼び出し
-let result: Any
-switch inputs.count {
-case 1:
-    // 配列 or 単一値判定
-    let input0 = inputs[0]
-    if input0.hasPrefix("[") {
-        result = solution.${method_name}(parseIntArray(input0))
-    } else if let intVal = Int(input0) {
-        result = solution.${method_name}(intVal)
-    } else {
-        result = solution.${method_name}(parseString(input0))
-    }
-case 2:
-    let input0 = inputs[0]
-    let input1 = inputs[1]
-    if input0.hasPrefix("[") {
-        if let intVal = Int(input1.trimmingCharacters(in: .whitespaces)) {
-            result = solution.${method_name}(parseIntArray(input0), intVal)
-        } else if input1.hasPrefix("[") {
-            result = solution.${method_name}(parseIntArray(input0), parseIntArray(input1))
-        } else {
-            result = solution.${method_name}(parseIntArray(input0), parseString(input1))
-        }
-    } else {
-        result = solution.${method_name}(parseString(input0), parseString(input1))
-    }
-case 3:
-    result = solution.${method_name}(parseIntArray(inputs[0]), parseInt(inputs[1]), parseInt(inputs[2]))
-default:
-    print("OUTPUT:ERROR_UNSUPPORTED_INPUTS")
-    exit(1)
-}
-
+let result = ${call_code}
 print("OUTPUT:\(formatOutput(result))")
 MAIN_EOF
 
