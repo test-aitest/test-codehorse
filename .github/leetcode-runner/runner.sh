@@ -21,14 +21,14 @@ error_exit() {
     exit 1
 }
 
-# Measure execution time (nanosecond precision)
+# Measure execution time (microsecond precision)
 measure_time() {
     local start=$(date +%s%N)
     "$@" 2>&1
     local status=$?
     local end=$(date +%s%N)
-    local duration=$(( (end - start) / 1000000 )) # Convert to milliseconds
-    echo "EXECUTION_TIME_MS:$duration"
+    local duration=$(( (end - start) / 1000 )) # Convert to microseconds
+    echo "EXECUTION_TIME_US:$duration"
     return $status
 }
 
@@ -758,12 +758,12 @@ main() {
                     ;;
             esac
 
-            # Extract execution time
-            time_ms=$(echo "$result" | grep "EXECUTION_TIME_MS:" | sed 's/EXECUTION_TIME_MS://')
+            # Extract execution time (in microseconds)
+            time_us=$(echo "$result" | grep "EXECUTION_TIME_US:" | sed 's/EXECUTION_TIME_US://')
             output=$(echo "$result" | grep "OUTPUT:" | sed 's/OUTPUT://')
 
-            if [ -n "$time_ms" ]; then
-                all_times+=("$time_ms")
+            if [ -n "$time_us" ]; then
+                all_times+=("$time_us")
                 successful_runs=$((successful_runs + 1))
 
                 # Compare results (first run only)
@@ -783,36 +783,42 @@ main() {
         done
     done < <(echo "$TEST_CASES" | jq -c '.[]')
 
-    # Calculate statistics
+    # Calculate statistics (all_times is in microseconds)
     if [ ${#all_times[@]} -gt 0 ]; then
-        # Average
+        # Average (in microseconds)
         sum=0
         for t in "${all_times[@]}"; do
             sum=$((sum + t))
         done
-        avg=$((sum / ${#all_times[@]}))
+        avg_us=$((sum / ${#all_times[@]}))
 
-        # Min/Max
-        min=${all_times[0]}
-        max=${all_times[0]}
+        # Min/Max (in microseconds)
+        min_us=${all_times[0]}
+        max_us=${all_times[0]}
         for t in "${all_times[@]}"; do
-            if [ "$t" -lt "$min" ]; then min=$t; fi
-            if [ "$t" -gt "$max" ]; then max=$t; fi
+            if [ "$t" -lt "$min_us" ]; then min_us=$t; fi
+            if [ "$t" -gt "$max_us" ]; then max_us=$t; fi
         done
 
-        # Standard deviation (simple calculation)
+        # Standard deviation (in microseconds)
         variance_sum=0
         for t in "${all_times[@]}"; do
-            diff=$((t - avg))
+            diff=$((t - avg_us))
             variance_sum=$((variance_sum + diff * diff))
         done
         variance=$((variance_sum / ${#all_times[@]}))
-        stddev=$(echo "scale=2; sqrt($variance)" | bc)
+        stddev_us=$(echo "scale=0; sqrt($variance)" | bc)
+
+        # Convert to milliseconds with 2 decimal places
+        avg_ms=$(echo "scale=2; $avg_us / 1000" | bc)
+        min_ms=$(echo "scale=2; $min_us / 1000" | bc)
+        max_ms=$(echo "scale=2; $max_us / 1000" | bc)
+        stddev_ms=$(echo "scale=2; $stddev_us / 1000" | bc)
     else
-        avg=0
-        min=0
-        max=0
-        stddev=0
+        avg_ms=0
+        min_ms=0
+        max_ms=0
+        stddev_ms=0
     fi
 
     # Output result as JSON
@@ -821,10 +827,10 @@ main() {
     "success": true,
     "totalRuns": $total_runs,
     "successfulRuns": $successful_runs,
-    "averageTimeMs": $avg,
-    "minTimeMs": $min,
-    "maxTimeMs": $max,
-    "stdDevMs": $stddev,
+    "averageTimeMs": $avg_ms,
+    "minTimeMs": $min_ms,
+    "maxTimeMs": $max_ms,
+    "stdDevMs": $stddev_ms,
     "allCorrect": $all_correct,
     "testResults": [$(IFS=,; echo "${test_results[*]}")]
 }
