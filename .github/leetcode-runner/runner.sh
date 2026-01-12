@@ -106,15 +106,61 @@ global.TreeNode = helper.TreeNode;
 // ユーザーコード実行
 eval(userCode);
 
-// 入力パース
-const parsed = helper.parseInput(inputStr);
+// LeetCode形式の入力をパース (e.g., "nums = [1,2,3], target = 9")
+function parseLeetCodeInput(s) {
+    s = s.trim();
+    if (!s) return [];
 
-// 関数を探して実行（var xxx = function形式を想定）
-const funcMatch = userCode.match(/var\s+(\w+)\s*=\s*function/);
+    const params = [];
+    let current = '';
+    let bracketDepth = 0;
+
+    for (const char of s) {
+        if (char === '[') {
+            bracketDepth++;
+            current += char;
+        } else if (char === ']') {
+            bracketDepth--;
+            current += char;
+        } else if (char === ',' && bracketDepth === 0) {
+            params.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    if (current.trim()) {
+        params.push(current.trim());
+    }
+
+    // 各パラメータから値を抽出してパース
+    return params.map(param => {
+        let valuePart = param;
+        if (param.includes('=')) {
+            valuePart = param.split('=')[1].trim();
+        }
+        return helper.parseInput(valuePart);
+    });
+}
+
+// 関数を探して実行
+// パターン1: var xxx = function
+// パターン2: function xxx(
+// パターン3: const xxx = (
+let funcName = null;
+let funcMatch = userCode.match(/var\s+(\w+)\s*=\s*function/);
+if (!funcMatch) {
+    funcMatch = userCode.match(/function\s+(\w+)\s*\(/);
+}
+if (!funcMatch) {
+    funcMatch = userCode.match(/const\s+(\w+)\s*=\s*\(/);
+}
+
 if (funcMatch) {
-    const funcName = funcMatch[1];
+    funcName = funcMatch[1];
     const func = eval(funcName);
-    const result = Array.isArray(parsed) ? func(...parsed) : func(parsed);
+    const parsed = parseLeetCodeInput(inputStr);
+    const result = func(...parsed);
     console.log('OUTPUT:' + helper.formatOutput(result));
 } else {
     console.log('OUTPUT:ERROR_NO_FUNCTION');
@@ -154,7 +200,7 @@ run_java() {
     cp "$code_file" "$work_dir/Solution.java"
 
     # Main.java作成
-    cat > "$work_dir/Main.java" << MAIN_EOF
+    cat > "$work_dir/Main.java" << 'MAIN_EOF'
 import java.util.*;
 
 public class Main {
@@ -176,37 +222,84 @@ public class Main {
                 }
             }
         } catch (Exception e) {
+            e.printStackTrace();
             System.out.println("OUTPUT:ERROR_" + e.getMessage());
         }
     }
 
-    private static Object[] parseInputs(String input, Class<?>[] types) {
-        // 簡易パース
-        if (types.length == 1) {
-            return new Object[]{parseValue(input, types[0])};
+    // LeetCode形式の入力をパース (e.g., "nums = [1,2,3], target = 9")
+    private static List<String> parseLeetCodeInput(String input) {
+        List<String> results = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        int bracketDepth = 0;
+
+        for (char c : input.toCharArray()) {
+            if (c == '[') {
+                bracketDepth++;
+                current.append(c);
+            } else if (c == ']') {
+                bracketDepth--;
+                current.append(c);
+            } else if (c == ',' && bracketDepth == 0) {
+                results.add(extractValue(current.toString()));
+                current = new StringBuilder();
+            } else {
+                current.append(c);
+            }
         }
-        return new Object[]{};
+        if (current.length() > 0) {
+            results.add(extractValue(current.toString()));
+        }
+        return results;
+    }
+
+    private static String extractValue(String s) {
+        s = s.trim();
+        int eqIndex = s.indexOf('=');
+        if (eqIndex != -1) {
+            return s.substring(eqIndex + 1).trim();
+        }
+        return s;
+    }
+
+    private static Object[] parseInputs(String input, Class<?>[] types) {
+        List<String> values = parseLeetCodeInput(input);
+        Object[] result = new Object[types.length];
+
+        for (int i = 0; i < types.length && i < values.size(); i++) {
+            result[i] = parseValue(values.get(i), types[i]);
+        }
+        return result;
     }
 
     private static Object parseValue(String s, Class<?> type) {
         s = s.trim();
         if (type == int[].class) {
-            s = s.replaceAll("[\\[\\]]", "");
-            if (s.isEmpty()) return new int[0];
-            String[] parts = s.split(",");
-            int[] arr = new int[parts.length];
-            for (int i = 0; i < parts.length; i++) {
-                arr[i] = Integer.parseInt(parts[i].trim());
-            }
-            return arr;
+            return parseIntArray(s);
+        } else if (type == int[][].class) {
+            return parseIntMatrix(s);
         } else if (type == int.class || type == Integer.class) {
             return Integer.parseInt(s);
+        } else if (type == long.class || type == Long.class) {
+            return Long.parseLong(s);
+        } else if (type == double.class || type == Double.class) {
+            return Double.parseDouble(s);
+        } else if (type == boolean.class || type == Boolean.class) {
+            return s.equalsIgnoreCase("true") || s.equals("1");
         } else if (type == String.class) {
             return s.replaceAll("^\"|\"$", "");
+        } else if (type == String[].class) {
+            return parseStringArray(s);
         } else if (type == ListNode.class) {
             return ListNode.fromArray(parseIntArray(s));
         } else if (type == TreeNode.class) {
             return TreeNode.fromArray(parseIntegerArray(s));
+        } else if (type == List.class) {
+            // List<Integer>として処理
+            int[] arr = parseIntArray(s);
+            List<Integer> list = new ArrayList<>();
+            for (int v : arr) list.add(v);
+            return list;
         }
         return null;
     }
@@ -220,6 +313,45 @@ public class Main {
             arr[i] = Integer.parseInt(parts[i].trim());
         }
         return arr;
+    }
+
+    private static int[][] parseIntMatrix(String s) {
+        s = s.trim();
+        if (s.equals("[]") || s.isEmpty()) return new int[0][];
+
+        List<int[]> rows = new ArrayList<>();
+        int depth = 0;
+        StringBuilder current = new StringBuilder();
+
+        for (int i = 1; i < s.length() - 1; i++) {
+            char c = s.charAt(i);
+            if (c == '[') {
+                depth++;
+                if (depth == 1) current = new StringBuilder();
+                current.append(c);
+            } else if (c == ']') {
+                current.append(c);
+                depth--;
+                if (depth == 0) {
+                    rows.add(parseIntArray(current.toString()));
+                }
+            } else if (c == ',' && depth == 0) {
+                // skip
+            } else {
+                current.append(c);
+            }
+        }
+        return rows.toArray(new int[0][]);
+    }
+
+    private static String[] parseStringArray(String s) {
+        s = s.trim().replaceAll("[\\[\\]]", "");
+        if (s.isEmpty()) return new String[0];
+        String[] parts = s.split(",");
+        for (int i = 0; i < parts.length; i++) {
+            parts[i] = parts[i].trim().replaceAll("^\"|\"$", "");
+        }
+        return parts;
     }
 
     private static Integer[] parseIntegerArray(String s) {
@@ -238,8 +370,26 @@ public class Main {
         if (val == null) return "null";
         if (val instanceof int[]) {
             return Arrays.toString((int[])val).replaceAll(" ", "");
+        } else if (val instanceof int[][]) {
+            StringBuilder sb = new StringBuilder("[");
+            int[][] matrix = (int[][])val;
+            for (int i = 0; i < matrix.length; i++) {
+                if (i > 0) sb.append(",");
+                sb.append(Arrays.toString(matrix[i]).replaceAll(" ", ""));
+            }
+            sb.append("]");
+            return sb.toString();
         } else if (val instanceof Integer[]) {
             return Arrays.toString((Integer[])val).replaceAll(" ", "");
+        } else if (val instanceof String[]) {
+            StringBuilder sb = new StringBuilder("[");
+            String[] arr = (String[])val;
+            for (int i = 0; i < arr.length; i++) {
+                if (i > 0) sb.append(",");
+                sb.append("\"").append(arr[i]).append("\"");
+            }
+            sb.append("]");
+            return sb.toString();
         } else if (val instanceof ListNode) {
             return Arrays.toString(ListNode.toArray((ListNode)val)).replaceAll(" ", "");
         } else if (val instanceof TreeNode) {
@@ -286,12 +436,6 @@ module leetcode
 go 1.21
 GOMOD_EOF
 
-    # ヘルパーをコピー
-    mkdir -p "$work_dir/helper"
-    cp "$HELPER_DIR/go/leetcode_helper.go" "$work_dir/helper/"
-    # パッケージ名を変更
-    sed -i 's/package leetcode/package helper/' "$work_dir/helper/leetcode_helper.go"
-
     # ユーザーコードをコピーしてパッケージ名を修正
     cp "$code_file" "$work_dir/solution_impl.go"
     # package mainが無ければ追加、あれば維持
@@ -318,8 +462,61 @@ import (
     "fmt"
     "os"
     "reflect"
+    "strconv"
     "strings"
 )
+
+// ListNode リンクリストのノード
+type ListNode struct {
+    Val  int
+    Next *ListNode
+}
+
+// TreeNode 二分木のノード
+type TreeNode struct {
+    Val   int
+    Left  *TreeNode
+    Right *TreeNode
+}
+
+// LeetCode形式の入力をパース (e.g., "nums = [1,2,3], target = 9")
+func parseLeetCodeInput(input string) []string {
+    var results []string
+    var current strings.Builder
+    bracketDepth := 0
+
+    for _, c := range input {
+        switch c {
+        case '[':
+            bracketDepth++
+            current.WriteRune(c)
+        case ']':
+            bracketDepth--
+            current.WriteRune(c)
+        case ',':
+            if bracketDepth == 0 {
+                results = append(results, extractValue(current.String()))
+                current.Reset()
+            } else {
+                current.WriteRune(c)
+            }
+        default:
+            current.WriteRune(c)
+        }
+    }
+    if current.Len() > 0 {
+        results = append(results, extractValue(current.String()))
+    }
+    return results
+}
+
+func extractValue(s string) string {
+    s = strings.TrimSpace(s)
+    if idx := strings.Index(s, "="); idx != -1 {
+        return strings.TrimSpace(s[idx+1:])
+    }
+    return s
+}
 
 // 結果をフォーマット
 func formatOutput(val interface{}) string {
@@ -350,46 +547,128 @@ func formatOutput(val interface{}) string {
         b, _ := json.Marshal(arr)
         return string(b)
     case *TreeNode:
-        // 簡易実装
-        b, _ := json.Marshal(v)
+        if v == nil {
+            return "[]"
+        }
+        arr := treeToArray(v)
+        b, _ := json.Marshal(arr)
         return string(b)
     default:
         return fmt.Sprintf("%v", v)
     }
 }
 
-// 入力をパース
-func parseInput(s string) interface{} {
+func treeToArray(root *TreeNode) []interface{} {
+    if root == nil {
+        return []interface{}{}
+    }
+    result := []interface{}{}
+    queue := []*TreeNode{root}
+    for len(queue) > 0 {
+        node := queue[0]
+        queue = queue[1:]
+        if node != nil {
+            result = append(result, node.Val)
+            queue = append(queue, node.Left)
+            queue = append(queue, node.Right)
+        } else {
+            result = append(result, nil)
+        }
+    }
+    // 末尾のnilを削除
+    for len(result) > 0 && result[len(result)-1] == nil {
+        result = result[:len(result)-1]
+    }
+    return result
+}
+
+// 入力を型に合わせてパース
+func parseInputForType(s string, t reflect.Type) reflect.Value {
     s = strings.TrimSpace(s)
 
-    // 配列
-    if strings.HasPrefix(s, "[") {
-        // 2次元配列
-        if strings.HasPrefix(s, "[[") {
-            var result [][]int
-            json.Unmarshal([]byte(s), &result)
-            return result
+    switch t.Kind() {
+    case reflect.Slice:
+        elemKind := t.Elem().Kind()
+        if elemKind == reflect.Int {
+            var arr []int
+            json.Unmarshal([]byte(s), &arr)
+            return reflect.ValueOf(arr)
+        } else if elemKind == reflect.String {
+            var arr []string
+            json.Unmarshal([]byte(s), &arr)
+            return reflect.ValueOf(arr)
+        } else if elemKind == reflect.Slice {
+            // 2次元配列
+            var arr [][]int
+            json.Unmarshal([]byte(s), &arr)
+            return reflect.ValueOf(arr)
         }
-        // 1次元配列
-        var result []int
-        if err := json.Unmarshal([]byte(s), &result); err == nil {
-            return result
+    case reflect.Int:
+        num, _ := strconv.Atoi(s)
+        return reflect.ValueOf(num)
+    case reflect.Int64:
+        num, _ := strconv.ParseInt(s, 10, 64)
+        return reflect.ValueOf(num)
+    case reflect.Float64:
+        num, _ := strconv.ParseFloat(s, 64)
+        return reflect.ValueOf(num)
+    case reflect.Bool:
+        return reflect.ValueOf(strings.ToLower(s) == "true" || s == "1")
+    case reflect.String:
+        return reflect.ValueOf(strings.Trim(s, "\""))
+    case reflect.Ptr:
+        // ListNode or TreeNode
+        typeName := t.Elem().Name()
+        if typeName == "ListNode" {
+            var arr []int
+            json.Unmarshal([]byte(s), &arr)
+            return reflect.ValueOf(arrayToList(arr))
+        } else if typeName == "TreeNode" {
+            var arr []interface{}
+            json.Unmarshal([]byte(s), &arr)
+            return reflect.ValueOf(arrayToTree(arr))
         }
-        // 文字列配列
-        var strResult []string
-        json.Unmarshal([]byte(s), &strResult)
-        return strResult
     }
 
-    // 数値
-    if s[0] == '-' || (s[0] >= '0' && s[0] <= '9') {
-        var num int
-        fmt.Sscanf(s, "%d", &num)
-        return num
-    }
+    // デフォルト: 文字列
+    return reflect.ValueOf(s)
+}
 
-    // 文字列
-    return strings.Trim(s, "\"")
+func arrayToList(arr []int) *ListNode {
+    if len(arr) == 0 {
+        return nil
+    }
+    head := &ListNode{Val: arr[0]}
+    current := head
+    for i := 1; i < len(arr); i++ {
+        current.Next = &ListNode{Val: arr[i]}
+        current = current.Next
+    }
+    return head
+}
+
+func arrayToTree(arr []interface{}) *TreeNode {
+    if len(arr) == 0 || arr[0] == nil {
+        return nil
+    }
+    root := &TreeNode{Val: int(arr[0].(float64))}
+    queue := []*TreeNode{root}
+    i := 1
+    for len(queue) > 0 && i < len(arr) {
+        node := queue[0]
+        queue = queue[1:]
+        if i < len(arr) && arr[i] != nil {
+            node.Left = &TreeNode{Val: int(arr[i].(float64))}
+            queue = append(queue, node.Left)
+        }
+        i++
+        if i < len(arr) && arr[i] != nil {
+            node.Right = &TreeNode{Val: int(arr[i].(float64))}
+            queue = append(queue, node.Right)
+        }
+        i++
+    }
+    return root
 }
 
 func main() {
@@ -413,12 +692,19 @@ func main() {
         os.Exit(1)
     }
 
-    // 入力をパース
-    input := parseInput(inputStr)
+    // LeetCode形式の入力をパース
+    inputs := parseLeetCodeInput(inputStr)
+
+    // メソッドの引数型を取得
+    methodType := method.Type()
+    numParams := methodType.NumIn()
 
     // 引数を準備
     var args []reflect.Value
-    args = append(args, reflect.ValueOf(input))
+    for i := 0; i < numParams && i < len(inputs); i++ {
+        paramType := methodType.In(i)
+        args = append(args, parseInputForType(inputs[i], paramType))
+    }
 
     // メソッド呼び出し
     results := method.Call(args)
