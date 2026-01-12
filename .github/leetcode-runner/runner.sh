@@ -191,7 +191,7 @@ run_java() {
     local expected="$3"
 
     # コンパイル
-    local work_dir="/home/leetcode/java_work"
+    local work_dir="/home/leetcode/.cache/java_work"
     rm -rf "$work_dir"
     mkdir -p "$work_dir"
 
@@ -425,7 +425,7 @@ run_go() {
     local input="$2"
     local expected="$3"
 
-    local work_dir="/home/leetcode/go_work"
+    local work_dir="/home/leetcode/.cache/go_work"
     rm -rf "$work_dir"
     mkdir -p "$work_dir"
 
@@ -732,7 +732,7 @@ run_swift() {
     local input="$2"
     local expected="$3"
 
-    local work_dir="/home/leetcode/swift_work"
+    local work_dir="/home/leetcode/.cache/swift_work"
     rm -rf "$work_dir"
     mkdir -p "$work_dir"
 
