@@ -552,6 +552,9 @@ MAIN_EOF
     cd "$work_dir"
     swiftc -O -o solution LeetCodeHelper.swift Solution.swift main.swift 2>&1 || error_exit "Swift build failed"
 
+    # 実行権限を付与
+    chmod +x ./solution
+
     # 実行
     timeout "$TIMEOUT" ./solution "$input" "$expected" 2>&1
 }
